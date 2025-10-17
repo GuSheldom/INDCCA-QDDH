@@ -1,0 +1,535 @@
+
+\chapter{Evaluation : Formalizing the Bilateral Reduction}
+\label{sec:bilateral-reduction}
+
+This chapter shows the formal construction and verification of our bilateral equivalence between IND-CCA1 security of ElGamal and the q-DDH assumption. We indicates both directions of the reduction with complete EasyCrypt implementations and proofs first.
+
+
+\section{Technical overview of bidirectional reduction}
+Our core technical contribution is the establishment of two reductions that bridge computational equivalence between:
+
+\subsection{Forward Reduction: ${\text{A\_from\_INDCCA1}}$.} This reduction will convert all IND-CCA1 adversary $B$ against ElGamal into a q-DDH distinguisher.,which works as follows:
+\begin{enumerate}
+\item \textbf{Challenge Reception:} It will first receiving a q-DDH challenge $(g^x, g^{x^2}, \ldots, g^{x^q}, g^r, T)$, then set the public key as $pk = g^x$.
+\item \textbf{Oracle Simulation:} Then it will leverage a limited decryption oracle that only processes queries $(C, z)$ where  adversary provides an explicit linear representation $z$ such that $C = \text{prodEx}(l, z)$, while $l = [g, g^x, \text{previous\_results}]$ is the list of group elements already known.
+\item \textbf{Challenge Programming:} Finally the adversary is expected to request the encryption challenge, that sets $C^* = g^r$ and $K^* = T$, giving the q-DDH challenge directly into the IND-CCA1 game.
+\item \textbf{Decision Extraction:} The reduction outputs the adversary's guess as its q-DDH decision.
+\end{enumerate}
+
+\subsection{Backward Reduction: ${\text{B\_from\_qDDH}}$.} This reduction converts any q-DDH distinguisher $A$ into an IND-CCA1 adversary:
+\begin{enumerate}
+\item \textbf{Challenge Embedding:} The reduction embeds the received IND-CCA1 challenge into a q-DDH problem by generating the tuple $(g^x, g^{x^2}, \ldots, g^{x^q}, C^*, K^*)$ where $x$ is the secret key and $(K^*, C^*)$ is the challenge key-ciphertext pair.
+\item \textbf{Game Simulation:} Then it will simulates the q-DDH game for the attacker by the same oracle discipline as the forward reduction.
+\item \textbf{Advantage Preservation:} The distinguisher's decision is directly translated into an IND-CCA1 guess.
+\end{enumerate}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Forward Reduction: IND-CCA1 to q-DDH}
+\label{sec:forward-reduction4}
+
+The forward reduction constructs a q-DDH adversary \texttt{A\_from\_INDCCA1} that uses any IND-CCA1 adversary as a subroutine. This reduction demonstrates that if ElGamal's IND-CCA1 security can be broken, then the q-DDH assumption can also be broken.
+
+\subsection{Module Structure and State Variables}
+
+\begin{lstlisting}[style=easycrypt, caption=A\_from\_INDCCA1 Module Structure, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+module (A_from_INDCCA1 (A : Adv_INDCCA1) : A_qDDH) = {
+  
+  (* State variables for the reduction *)
+  var gxs : group list        (* Powers g^x, g^{x^2}, ..., g^{x^q} *)
+  var l : group list          (* List of group elements (oracle state) *)
+  var reps : exp list list    (* Linear representations of l in basis (g::gxs) *)
+\end{lstlisting}
+
+The module takes an IND-CCA1 adversary \texttt{A} as parameter and implements the q-DDH adversary interface \texttt{A\_qDDH};
+
+\texttt{gxs} stores the powers $[g^x, g^{x^2}, \ldots, g^{x^q}]$ extracted from the q-DDH challenge. This forms the basis for our algebraic representation system;
+
+\texttt{l} maintains the list of group elements that the adversary has "seen" through oracle queries, similar to the oracle state in the original IND-CCA1 game;
+
+\texttt{reps} stores the corresponding linear representations of elements in \texttt{l} with respect to the basis $(g, g^x, g^{x^2}, \ldots, g^{x^q})$. This enables algebraic manipulation without knowing the discrete logarithm.
+
+
+\subsection{Internal Oracle Simulation}
+
+The core innovation is the internal oracle \texttt{O\_Internal} that simulates the IND-CCA1 decryption oracle using only the q-DDH challenge, without access to the actual secret key.
+
+\begin{lstlisting}[style=easycrypt, caption=Internal Oracle Implementation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Internal oracle that simulates CCA1 oracle using q-DDH challenge *)
+  module O_Internal : Oracles_CCA1i = {
+    var sk : sk_t
+    var qs : (ctxt_t * key_t option) list
+    var challenge_c : ctxt_t 
+
+    proc init(sk_init : sk_t) = {
+    sk <- sk_init;
+       qs <- [];
+      
+      l <- [];
+    }
+
+    (* Core oracle: simulate decryption without knowing secret key *)
+    proc dec(c : ctxt_t, z : exp list) : key_t option = {
+      var p : key_t option;
+      var rep_c, rep_p;
+      var invalid_query : bool;
+
+      (* Validity check: query limit and representation consistency *)
+      invalid_query <- (q < size qs + 2  \/ c <> prodEx l z);
+
+      (* Compute representation of ciphertext in basis (g::gxs) *)
+      rep_c <- sumv (map (fun x : exp list * exp => scalev x.`1 x.`2)
+         (zip reps z)); 
+           (* Prepend zero for g^0 term *)
+       rep_p <- ( shift_trunc rep_c); 
+      
+      (* Compute corresponding group element *)
+      p <- Some (prodEx (g :: gxs) (rep_p));
+      
+      (* Update state if query was valid *)
+           if (!invalid_query) {
+        reps <- rep_p :: reps ;
+        l <-   oget p :: l ;           (* Add to group element list *)
+        qs <- (c, p) :: qs;      (* Record query *)
+             (* Store representation *)
+      }
+     
+      (* Return result *)
+      return (if invalid_query then witness else p);
+    }
+  }
+\end{lstlisting}
+
+
+
+Module declaration implementing the \texttt{Oracles\_CCA1i} interface with state variables for secret key, query history, and challenge ciphertext, and an initialization procedure that sets up the oracle state; note that when \texttt{sk} is stored, it's not actually used in the simulation, the oracle operates entirely using algebraic manipulation, and the key decryption procedure that must simulate decryption without knowing the secret key proceeds by introducing local variables for the computation: \texttt{p} for the result, \texttt{rep\_c} and \texttt{rep\_p} for algebraic representations, and \texttt{invalid\_query} for validity checking, after which a validity check integrating two conditions is performed, namely (i) the query limit \texttt{q < size qs + 2} that ensures we don't exceed the allowed number of queries and (ii) the representation consistency \texttt{c <> prodEx l z} that verifies the provided representation \texttt{z} correctly represents ciphertext \texttt{c}. 
+Then the algebraic magic happen: we compute the representation of ciphertext \texttt{c} in the basis \((g, g^x, \ldots, g^{x^q})\) by taking each previously seen element's representation from \texttt{reps}, scaling each representation by the corresponding coefficient in \texttt{z}, and summing all scaled representations using \texttt{sumv}; next, the \texttt{shift\_trunc} operation prepends a zero and truncates to maintain proper dimensionality, which accounts for the fact that the decryption result \(c^x\) has a different representation structure, and then compute the actual group element corresponding to the representation using \texttt{prodEx} with the full basis \((g, g^x, \ldots, g^{x^q})\). 
+
+Finally, when it comes to state update for valid queries, we add the computed representation to \texttt{reps}, add the computed group element to \texttt{l}, and record the query--response pair in \texttt{qs}, and we return the computed result for valid queries, or a witness value for invalid queries.
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Main Reduction Procedure}
+
+\begin{lstlisting}[style=easycrypt, caption=Main Reduction Procedure, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Main reduction procedure *)
+  proc guess(gtuple : group list) : bool = {
+    var c : ctxt_t; 
+    var k : key_t;
+    var b' : bool;
+    var x_exp : exp;
+
+    (* Parse q-DDH challenge: gtuple = [g^x, g^{x^2}, ..., g^{x^q}, g^r, T] *)
+    gxs <- take q gtuple;             (* Extract [g^x, ..., g^{x^q}] *)
+    c <- nth witness gtuple q;        (* Extract g^r (ciphertext) *)  
+    k <- nth witness gtuple (q + 1);  (* Extract T (challenge key) *)
+    
+    (* Initialize internal oracle *)
+    O_Internal.init(witness);
+    
+      (* Set initial state: adversary has seen g and g^x *)
+    l <-   head witness gxs :: g::  [];
+    (* Corresponding representations in basis (g::gxs) *)
+    reps <- (* g = g^1 * (g^x)^0 * ... *)
+      (zero :: one :: nseq (q-1) zero) ::[(one :: nseq q zero)];  (* g^x = g^0 * (g^x)^1 * ... *)
+
+   
+    
+    (* Run IND-CCA1 adversary *)
+    A(O_Internal).scout(head witness gxs);      (* Scout phase *)
+    b' <@ A(O_Internal).distinguish(k, c);     (* Challenge phase *)
+    
+    return b';
+  }
+\end{lstlisting}
+
+
+From the first 6 lines, it procedure signature and local variable declarations. The procedure receives a q-DDH challenge tuple and must return a boolean guess.
+
+After that(line 9), it extract the first $q$ elements $[g^x, g^{x^2}, \ldots, g^{x^q}]$ from the challenge tuple using \texttt{take q}.
+
+And it will extract the $(q+1)$-th element, which represents $g^r$ (the ElGamal ciphertext component); extract the $(q+2)$-th element, which is either $g^{xr}$ (real) or $g^{xr+z}$ (random) depending on the q-DDH challenge bit.
+
+In the next step it will initialize the internal oracle with a witness value (since we don't have a real secret key) and set up the initial state where the adversary has seen $g^x$ (the public key) and $g$ (the generator).
+
+Additionally it will also initiate the representation vectors:
+  \begin{itemize}
+  \item $g$ is represented as $(0, 1, 0, \ldots, 0)$ in basis $(g, g^x, \ldots, g^{x^q})$
+  \item $g^x$ is represented as $(1, 0, 0, \ldots, 0)$ in the same basis
+  \end{itemize}
+
+After that the reduction will run the adversary's scout phase, giving it access to the public key $g^x$ and the simulated oracle and run the adversary's distinguish phase with the challenge key $k$ and ciphertext $c$.
+
+Finally, it return the adversary's guess, which becomes our q-DDH distinguisher's output.
+
+
+\section{Backward Reduction: q-DDH to IND-CCA1}
+\label{sec:backward-reduction4}
+
+The backward reduction constructs an IND-CCA1 adversary \texttt{B\_from\_qDDH} that uses any q-DDH adversary as a subroutine. This reduction demonstrates that if the q-DDH assumption can be broken, then ElGamal's IND-CCA1 security can also be broken.
+
+\subsection{Module Structure and Scout Phase}
+
+\begin{lstlisting}[style=easycrypt, caption=B\_from\_qDDH Module Structure, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Alternative adversary construction **)
+module (B_from_qDDH (A  : A_qDDH) : Adv_INDCCA1)(O : Oracles_CCA1i) = {
+  var gxs : group list
+
+  (* Scout phase: build up powers of x using decryption oracle *)
+  proc scout(pk:pk_t) : unit ={
+     var i   : int;
+     var p   : key_t option;
+     gxs <- [pk];  
+     i <- 1 ;
+
+     while (i <= q-1) {
+     
+     p <@ O.dec(last witness gxs, ( one :: nseq i zero));
+     
+     gxs <- gxs ++ [oget p];
+     i <- i + 1;
+   }}
+\end{lstlisting}
+
+
+Module declaration taking a q-DDH adversary \texttt{A} and implementing the IND-CCA1 adversary interface with oracle access. Then we state variable \texttt{gxs} to store the powers of $x$ that we'll construct through oracle queries. It will then scout phase procedure where we can make decryption queries to build up our knowledge. The Local variables are \texttt{i} for loop counter and \texttt{p} for oracle responses.
+
+Before the loop start, we first initialize \texttt{gxs} with the public key $pk = g^x$. Then we start loop counter at 1 (we already have $g^x$, now we need $g^{x^2}, g^{x^3}, \ldots$) and loop to construct powers $g^{x^2}, g^{x^3}, \ldots, g^{x^q}$.
+
+We can gain insight from quering the oracle with ciphertext \texttt{last witness gxs} (the highest power we have so far) and representation vector \texttt{(one :: nseq i zero)}:
+  \begin{itemize}
+  \item This represents the query "decrypt $g^{x^i}$ with representation $(1, 0, 0, \ldots, 0)$"
+  \item The oracle will return $g^{x^{i+1}}$ (since decryption multiplies by $x$)
+  \end{itemize}
+
+Finally we append the new power to our list: \texttt{gxs} now contains $[g^x, g^{x^2}, \ldots, g^{x^{i+1}}]$ and increase counter to build the next power.
+
+
+\subsection{Distinguish Phase}
+
+\begin{lstlisting}[style=easycrypt, caption=B\_from\_qDDH Distinguish Phase, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Convert to q-DDH challenge *)
+   proc distinguish(k: key_t, c: ctxt_t) : bool = {
+      var b'  : bool;
+      
+      (* Pass challenge to q-DDH adversary *)
+      b' <@ A.guess( gxs ++ [c] ++ [k]);
+      return b';
+   }
+\end{lstlisting}
+
+\subsubsection{Detailed Analysis:}
+Firstly, the procedure is expected to receiving the challenge key \texttt{k} and ciphertext \texttt{c}. And at the initial stage, it will initiate a local variable \texttt{b'} for the adversary's response.
+
+After that, which is the crucial step of this phase: construct a q-DDH challenge tuple by concatenating:
+  \begin{itemize}
+  \item \texttt{gxs}: The powers $[g^x, g^{x^2}, \ldots, g^{x^q}]$ we built in the scout phase
+  \item \texttt{[c]}: The challenge ciphertext $g^r$
+  \item \texttt{[k]}: The challenge key, which is either $g^{xr}$ (real) or random
+  \end{itemize}
+Finally, it will return the q-DDH adversary's guess as the IND-CCA1 distinguisher's result.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Main Theorem: Bilateral Equivalence}
+\label{sec:main-theorem4}
+
+Our main result establishes a tight bilateral equivalence between the two security notions:
+
+\begin{theorem}[Bilateral Equivalence]
+\label{thm:bilateral-equivalence}
+Under the algebraic group model, for any cyclic group $\mathcal{G}$ of prime order $p$:
+
+\subsection{Forward Direction.} For any IND-CCA1 adversary $\mathcal{B}$ making at most $q$ decryption queries, there exists a q-DDH adversary $\mathcal{\text{A\_from\_INDCCA1}}(\mathcal{B})$ such that:
+\[
+\Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, \mathcal{B}).\text{main}() : \text{res}] = \Pr[\text{QDDH}({\text{A\_from\_INDCCA1}}(\mathcal{B})).\text{main}() : \text{res}]
+\]
+
+\subsection{Backward Direction.} For any q-DDH adversary $\mathcal{A}$, there exists an IND-CCA1 adversary ${\text{B\_from\_qDDH}}(\mathcal{A})$ such that:
+\[
+\Pr[\text{QDDH}(\mathcal{A}).\text{main}() : \text{res}] = \Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, {\text{B\_from\_qDDH}}(\mathcal{A})).\text{main}() : \text{res}]
+\]
+
+Both reductions are tight with no security loss.
+\end{theorem}
+
+
+And the main theorem are formalized as the following EasyCrypt lemmas:
+
+\begin{lstlisting}[style=easycrypt, caption=Main Bilateral Equivalence Lemmas, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Forward direction *)
+lemma qDDH_Implies_INDCCA1_ElGamal &m :
+  Pr[IND_CCA1_P(ElGamal,B).main() @ &m : res] = 
+  Pr[QDDH(A_from_INDCCA1(B)).main() @ &m : res].
+
+(* Backward direction *)
+lemma INDCCA1_ElGamal_Implies_qDDH &m :
+  Pr[QDDH(A).main() @ &m : res] =
+  Pr[IND_CCA1_P(ElGamal,B_from_qDDH(A)).main() @ &m : res].
+\end{lstlisting}
+
+This completes our formalization of the bilateral equivalence between IND-CCA1 security of ElGamal and the q-DDH assumption, providing the first EasyCrypt machine-checked proof of this fundamental result.
+
+
+
+\noindent \textit{Complete EasyCrypt Implementation:} The full formal verification code, including all lemmas and proofs, is available at: \url{https://github.com/GuSheldom/INDCCA-QDDH}
+
+
+
+\section{Overall Analysis of INDCCA1\_ElGamal\_Implies\_qDDH Code}
+
+This part indicates the core of the proof for the reduction from IND-CCA1 ElGamal to q-DDH. The entire proof uses the \textbf{byequiv} strategy, constructing equivalence between two games to complete the reduction proof.
+
+\subsection{Key components of Proof Structure}
+
+\begin{enumerate}
+\item \textbf{Code Alignment}: Using \texttt{swap} operations to reorder instructions in both games, ensuring the related random sampling and computation steps align accurately.
+
+\item \textbf{Loop Invariant Maintenance}: Establishing a loop-for-while invariant that ensures at each iteration, we initiate counter \texttt{i} remains within valid range and the group element list \texttt{gxs} is introduced to correctly corresponds to the exponent sequence. In addition, oracle's base list \texttt{l} is maintained and ensuring the query count limitations are satisfied.
+
+
+\item \textbf{List Operation Equivalence}: Proving that \texttt{map}, \texttt{range}, \texttt{rev}, and other list operations produce same results in both games, particularly building equivalence between the last element of the lists and their \texttt{prodEx} representations.
+
+\item \textbf{Random Variable Transformation}: Applying the crucial random variable transformation \texttt{rnd (fun z => g \textasciicircum{} (z + sk0\{2\} * y\{2\}))(fun k' => loge k' - sk0\{2\} * y\{2\})}, which is a bijective transformation preserving distributional consistency.
+\end{enumerate}
+
+
+
+
+
+
+
+
+\section{Overall Analysis of qDDH\_Implies\_INDCCA1\_ElGamal Code}
+
+This part represents the reverse direction of the reduction, indicating that q-DDH hardness can imply to IND-CCA1 security of ElGamal. The proof leverage the \textbf{byequiv} strategy to establish game equivalence through sophisticated algebraic manipulations and oracle simulations.
+
+\subsection{Key components of Proof Structure}
+
+\begin{enumerate}
+\item \textbf{Code Alignment and Setup}: 
+   \begin{itemize}
+   \item Uses \texttt{swap} operations to align random variable sampling between games
+   \item Establishes the foundational structure with \texttt{proc. inline*. swap\{1\} 11 -9. swap\{1\} 14 -10}
+   \item Brings random coins to the front for proper synchronization
+   \end{itemize}
+
+\item \textbf{ Oracle Invariant Maintenance}: 
+   The proof first introduce an  8-condition invariant for oracle simulation:
+   \begin{itemize}
+   \item \textbf{Query List Consistency}: \texttt{IND\_CCA1\_P.OS.l\{1\} = A\_from\_INDCCA1.l\{2\}}
+   \item \textbf{Query Count Synchronization}: Between different oracle implementations
+   \item \textbf{Representation-Ciphertext Mapping}: \texttt{A\_from\_INDCCA1.l\{2\} = map (prodEx (g :: A\_from\_INDCCA1.gxs\{2\})) reps}
+   \item \textbf{Base Elements Construction}: From secret key powers
+   \item \textbf{Uniform Representation Size}: All vectors have size \texttt{q + 1}
+   \item \textbf{Trailing Zeros Constraint}: For valid algebraic representations
+   \item \textbf{Representation Count Relationship}: Links query count to representation count
+   \end{itemize}
+
+\item \textbf{Algebraic Transformations}:
+   \begin{itemize}
+   \item \textbf{prodEx Flattening}: Transform nested \texttt{prodEx} operations leveraging the lemma \texttt{ex\_map\_prodEx}
+   \item \textbf{Distributivity Applications}: Uses \texttt{prodEx\_addv\_distributive} and \texttt{prodExConsGeneral}
+   \item \textbf{Zero Suffix Proofs}: Proving that representation vectors have trailing zeros through \texttt{drop\_scalev} and \texttt{scalev\_nseq\_zero}
+   \end{itemize}
+
+\item \textbf{Advanced List Manipulation Techniques}:
+   \begin{itemize}
+   \item \textbf{Range Splitting}: Decomposes ranges, for instance, \texttt{range 1 (q + 2) = range 1 (q + 1) ++ [q + 1]}
+   \item \textbf{Take/Drop Operations}: Uses \texttt{take\_cat}, \texttt{drop\_sumv}, and \texttt{nth\_drop} for precise list manipulation
+   \item \textbf{Zip and Map Compositions}: Complex operations on paired lists
+   \end{itemize}
+
+\item \textbf{Random Variable Transformation}:
+   \begin{itemize}
+   \item Applies \texttt{rnd (fun k' => loge k'- sk0\{1\} * y\{1\}) (fun z => g \textasciicircum{} (z + sk0\{1\} * y\{1\}))}
+   \item Establishes bijectivity through logarithm-exponentiation inverse pairs
+   \item  Keep uniform distribution over the key space
+   \end{itemize}
+\end{enumerate}
+
+
+
+\subsection{Proof Complexity Analysis}
+
+It is obvious to see the reverse direction proof is more complex than the forward one due to:
+Firstly, we must generate valid and provable representations from IND-CCA1 queries. Additionally, we are required to preserve various invariants across different data structures. Then, it is important to make careful analysis of boundary case in list operations and algebraic manipulations. Finally, accroding to the code, we use complex reduction on list structures to construct universal properties.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Comparison with Traditional Paper-Based Proofs}
+
+Our formal verification approach demonstrates significant advantages over traditional paper proofs, as exemplified by the reduction proof shown in the referenced paper (Theorem 5.2):
+
+
+
+
+
+
+Our formal proof indicates several advantages compared to traditional paper proofs, as shown in the referenced paper ~\cite{fuchsbauer2018}.
+
+
+
+
+\subsection{Rigor and Precision Comparison}
+
+The paper proof~\cite{fuchsbauer2018} states "First note that given an adversary $A_{alg}$ against q-ddh$_G$ one can easily construct an adversary $B_{alg}$ against ind-cca1..." which represents a high-level, intuitive description that leaves implementation details unspecified. By comparison, the formalization we provide, indicates a complete, machine-verified construction of the reduction through the \texttt{B\_from\_qDDH} module, with any step of the oracle simulation fully defined and verified.
+
+\subsection{Oracle Simulation Accuracy}
+
+The paper states that "$B_{alg}$ can express $C$ as $C = \prod_{j \geq 0} g^{a_j x^j}$" and utilize this for decryption queries, but the exact approach that maintaining consistency and handling boundary cases is not specified. However, our \texttt{O\_CCA1\_Limited} oracle provides precise query counting, algebraic representation validation, and state consistency checks. Every decryption query is handled with mathematically verified accuracy through the \texttt{prodEx}.
+
+\subsection{Distribution Equivalence}
+
+In the paper~\cite{fuchsbauer2018}, claims like "Clearly, $(g^x, g^{x^2}, \ldots, g^{x^q}, C^*, K^*)$ is correctly distributed" has been specified in our approach by establishing distributional equivalence through rigorous random variable transformations with machine-checked bijectivity proofs, eliminating possibility of distributional errors.
+
+\subsection{Security Loss Analysis}
+
+The paper proof states advantage equations like $\mathbf{Adv}^{q-ddh}_{G,B_{alg}} = \mathbf{Adv}^{ind-cca1}_{EG,G,A_{alg}}$ without detailed step-by-step verification of tightness. In contrast, every probability transformation is mechanically verified to main equality, providing concrete assurance of the reduction claim.
+
+\subsection{Elimination of Proof Gaps}
+
+Traditional cryptographic proofs, while providing valuable insight, often contain implicit steps, to eliminate this effect, our EasyCrypt proof: 
+
+\begin{itemize}
+\item Requiring explicit construction of all reduction components
+\item Machine-verifying every step and probability calculation
+\item Ensuring that all algebraic manipulations are mathematically sound
+\item Offering executable reduction algorithms with precise specifications
+\end{itemize}
+
+
+
+
+
+\section{Main Results}
+
+\subsection{enhance the rigorous and the readability of algebraic reduction}
+In the traditional paper proof, it is frequently seen that some paper proof summarize this idea in one sentence, ' we can extract its representation since it is algebraic. However, in our proof, all such reasoning must be explicit in the game logic, to be specific, we are required to specify the rule that 'invalid queries should return a fixed value', while formally indicate that this behavior do not increase the attackers' success probability. 
+
+As a result, in our project, the proof becomes entirely transparent, for instance, we specify the quantity of the queries that adversary can make; what conditions the oracle should update state. And every step has a precise relationship between code and theorem. This coherence ensures that the formal proof not only eliminate the hidden flaws, but also offers a reproducible blueprint for future reductions and research.
+
+
+
+\subsection{motivate the research on Algebraic Group Model}
+In AGM(Algebraic Group Model), we make a formalized proof about the equivalence between security of IND-CCA1 of ElGamal and q-DDH assumption. In the paper ~\cite{fuchsbauer2018}, they prove a tight equivalence showing that, under the AGM, breaking the IND-CCA1 security of ElGamal is equivalent to solving a q-DDH problem.
+
+Our EasyCrypt formalization confirms this result: we build a reduction showing that any algebraic adversary breaking ElGamal’s IND-CCA1 security can be converted into a q-DDH distinguisher, with both advantages exactly equal.
+
+We contribute to this theory in two main ways. First, it offers a verification that the equivalence fully holds under the AGM, eliminating possible mistakes or hidden assumptions that may exist in paper proofs, which strengthens the AGM as an analytical framework that, by restricting adversaries to algebraic behavior, allows tight security proofs that are difficult to achieve in the standard model.
+
+
+Second, it indicates the power of the AGM itself: due to adversaries must be “algebraic” (i.e., every group element they output must come with a linear representation), indicates that the unprovable results in the standard model can often be proven in the AGM.
+For example, Fuchsbauer et al.~\cite{fuchsbauer2018} showed that several assumptions (such as CDH, SDH, and interactive LRSW) become equivalent to the discrete logarithm problem under the AGM.
+
+Our formalization adds a tool-verified instance to this line of results, demonstrating that the AGM can generate clear and theoretically meaningful security statements.
+In addition, the formal proof highlights the tightness and efficiency of reductions in the AGM, which is important for future theoretical research.
+When integrating with known attacks in the generic group model, the AGM-based proof characterizes the complexity edge for breaking ElGamal’s CCA security. All in all, this work is not only a validation of a single security result but also a relation between intuitive reasoning and formal verification in cryptographic theory.
+
+
+\subsection{Formalizing Algebraic Adversaries in EasyCrypt}
+One of the key contribution of our work is emphasizing how the special adversary model of the AGM can be captured fully using the EasyCrypt framework. The AGM is a notion that lies between the standard model and the generic group model: it allows adversaries to perform group operations but requires they provide its algebraic representation whenever they output a new group element. In the code, the oracle enforces this restriction by checking whether \texttt{c = prodEx l z} holds, 
+where l is the list of group elements already known to the adversary, 
+and z is the vector of exponents given by the query. 
+Then, if the query fails the condition, the oracle is expected to return a fixed value witness and do not update the state, which directly reflects the constraint of the AGM that the adversary must be able to express each one as a linear combination of previously observed elements rather than generate new group elements.
+
+To implement this, we define a oracle interface that extends the traditional decryption oracle by introducing a exponent-vector parameter. Then the exploration and the distinguishing phases of the adversary are designed to interact with this algebraic oracle. By this modeling, the security game is embedded within EasyCrypt, assuring that every reasoning step are able to verified mechanically. This indicates that even non-standard adversary models can be precisely express and represented and formally verified through appropriate modular design in EasyCrypt.
+
+
+

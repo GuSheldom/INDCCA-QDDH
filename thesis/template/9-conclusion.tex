@@ -1,0 +1,30 @@
+\chapter{Conclusion and Future work}\label{chap:conclusion}
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Upon reflection, the formalization of algebraic adversaries and oracle simulation in EasyCrypt we introduced 
+not only used for verifying the IND-CCA1 security of ElGamal, but also offers a general and reusable basic structure for future theoretical analysis for Algebraic Group Model (AGM). 
+
+The core operator we introduced, \texttt{prodEx}, with its supporting lemmas on distributivity, scaling, and vector operations, enables almost all manipulation of exponent-linear relations within EasyCrypt, give an essential capability for reasoning about algebraic adversaries in a mechanized setting.
+
+Additionally, this framework can be directly extended to formalize and verify other results from the AGM paper by Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018}. 
+For instance, their proof of the \emph{Algebraic Computational Diffie--Hellman (aCDH)} assumption is equivalent to the standard \emph{Computational Diffie--Hellman (CDH)} assumption relies on representing every group element as a linear combination of previously known elements. 
+In their paper proofs, this reasoning is expressed informally through algebraic extraction arguments. 
+In the future analysis, by using our \texttt{prodEx} operator, such relations can be explicitly encoded as:
+\[
+h = \mathsf{prodEx}([g_1, g_2, \ldots, g_n], [a_1, a_2, \ldots, a_n]),
+\]
+which allows EasyCrypt to mechanically verify whether the adversary’s output \(h\) follows from known bases. 
+This transformation turns the intuitive statement 'since the adversary is algebraic, we can extract its coefficients' in the original paper into a formally verified lemma within EasyCrypt.
+
+
+
+
+\section{Future Directions}
+\label{sec:future}
+Looking forward, this approach provides several promising research directions. 
+First, it could support the development of a \textbf{mechanized AGM lemma library}, covering results such as a CDH--CDH equivalence, algebraic SDH reductions~\cite{sdh2020}, and algebraic LRSW assumptions, providing a reusable foundation for future mechanized cryptographic proofs. Additionally, by combining these algebraic representations with probabilistic reasoning in EasyCrypt, it might be possible to make proof on \textbf{hybrid models} that mix algebraic reasoning with post-quantum assumptions (e.g., MLWE~\cite{nguyen2022} or isogeny-based systems~\cite{de2017}). 
+
+Such extensions would not only strengthen the theoretical rigor of the AGM but also provide a concrete bridge between algebraic reasoning and post-quantum formal verification. All in all, our work make contribution to the long-term goal of creating a unified, machine-verified code approach for a accurate and reproducible cryptographic security reductions.

@@ -1,0 +1,656 @@
+\chapter{q-DDH Correctness and IND-CCA1 Security}
+\label{sec:qddh-indcca1-security}
+
+This part establishes the mathematical and cryptographic foundations required for our analysis. We first introduce the ElGamal Key Encapsulation Mechanism (KEM), providing its algorithmic description and a formalized implementation in EasyCrypt; subsequently, we define the IND-CCA1 security model; and finally introduce the q-Decisional Diffie–Hellman (q-DDH) assumption. These components provide a structured foundation for subsequent reasoning about accuracy and security, enabling reductions to be rigorously expressed within our EasyCrypt code.
+
+\section{ElGamal Key Encapsulation Mechanism}
+\label{sec:elgamal-kem}
+Our analysis focuses on the KEM formulation of ElGamal, specifying three algorithms that operate over a cyclic group $\mathcal{G}$ of prime order $p$ with generator $g$. This formal description facilitates distinguishing correctness from security: correctness ensures legitimate recipients accurately recover encrypted session keys, while security ensures attackers cannot distinguish keys from random ones.
+
+\subsection{Algorithmic Specification}
+
+The ElGamal KEM is defined by the following algorithms:
+
+\paragraph{Key Generation.}
+\begin{algorithmic}[1]
+\STATE \textbf{Algorithm} $\mathsf{KeyGen}(\mathcal{G}) \rightarrow (pk, sk)$:
+\STATE $x \leftarrow \mathbb{Z}_p$ \COMMENT{Sample random secret key}
+\STATE $pk \leftarrow g^x$ \COMMENT{Compute public key}
+\STATE \textbf{return} $(pk, sk) = (g^x, x)$
+\end{algorithmic}
+
+\paragraph{Key Encapsulation.}
+\begin{algorithmic}[1]
+\STATE \textbf{Algorithm} $\mathsf{Enc}(pk) \rightarrow (K, C)$:
+\STATE $r \leftarrow \mathbb{Z}_p$ \COMMENT{Sample random encapsulation exponent}
+\STATE $C \leftarrow g^r$ \COMMENT{Compute ciphertext}
+\STATE $K \leftarrow pk^r$ \COMMENT{Compute session key}
+\STATE \textbf{return} $(K, C) = (g^{xr}, g^r)$
+\end{algorithmic}
+
+\paragraph{Key Decapsulation.}
+\begin{algorithmic}[1]
+\STATE \textbf{Algorithm} $\mathsf{Dec}(C, sk) \rightarrow K$:
+\STATE \textbf{if} $C \notin \mathcal{G}$ \textbf{then return} $\perp$
+\STATE $K \leftarrow C^{sk}$ \COMMENT{Recover session key}
+\STATE \textbf{return} $K$
+\end{algorithmic}
+
+\subsection{EasyCrypt Implementation}
+
+The ElGamal KEM is implemented in EasyCrypt as follows:
+
+\begin{lstlisting}[style=easycrypt, caption=ElGamal KEM Implementation in EasyCrypt, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** ElGamal encryption scheme implementation **)
+module ElGamal : Scheme = {
+  (* Key generation: sk random, pk = g^sk *)
+  proc keygen(): pk_t * sk_t = {
+    var sk;
+    sk <$ FD.dt;              (* Random secret key *)
+    return (g ^ sk, sk);      (* Public key is g^sk *)
+  }
+
+  (* Encryption: return (pk^y, g^y) where y is random *)
+  proc enc(pk:pk_t): key_t * ctxt_t= {
+    var y;
+    y <$ FD.dt;               (* Random encryption exponent *)
+    return (pk ^ y, g ^ y);   (* Session key and ciphertext *)
+  }
+  
+  (* Decryption: compute c^sk *)
+  proc dec(c:ctxt_t,sk:sk_t): key_t option = {
+    return Some (c ^ sk);     (* ElGamal decryption formula *)
+  }
+}.
+\end{lstlisting}
+
+\section{IND-CCA1 Security Model}
+\label{sec:ind-cca1-model}
+
+Indistinguishability under non-adaptive chosen-ciphertext attacks (IND-CCA1) is a significant security notion for public-key encryption schemes.
+
+\begin{definition}[IND-CCA1 Security Game]
+\label{def:ind-cca1-game}
+For a KEM scheme $\mathsf{KEM} = (\mathsf{KeyGen}, \mathsf{Enc}, \mathsf{Dec})$ and adversary $\mathcal{A}$, the IND-CCA1 security game proceeds as follows:
+
+\begin{algorithmic}[1]
+\STATE $(pk, sk) \leftarrow \mathsf{KeyGen}()$ \COMMENT{Generate key pair}
+\STATE $\mathcal{A}$ receives $pk$ and can query decryption oracle $\mathsf{Dec}(sk, \cdot)$
+\STATE $(K_0, C^*) \leftarrow \mathsf{Enc}(pk)$ \COMMENT{Generate challenge}
+\STATE $K_1 \leftarrow \mathcal{K}$ \COMMENT{Sample random key}
+\STATE $b \leftarrow \{0,1\}$ \COMMENT{Choose challenge bit}
+\STATE $b' \leftarrow \mathcal{A}(K_b, C^*)$ \COMMENT{Adversary distinguishes}
+\STATE \textbf{return} $(b' = b)$ \COMMENT{Adversary wins if correct}
+\end{algorithmic}
+\end{definition}
+
+The adversary's advantage is defined as:
+\[
+\mathsf{Adv}^{\text{IND-CCA1}}_{\mathsf{KEM}}(\mathcal{A}) = \left| \Pr[\text{IND-CCA1}^{\mathcal{A}}_{\mathsf{KEM}} = 1] - \frac{1}{2} \right|
+\]
+
+In the algebraic group model, the decryption oracle requires adversaries to provide algebraic representations for their queries, ensuring that all ciphertexts can be expressed in terms of previously seen group elements.
+
+\subsection{Relationship to Other Security Notions}
+
+Conceptually, IND-CCA1 strengthens IND-CPA by granting a decryption oracle only \emph{before} the challenge, while weaker than full adaptive IND-CCA2~\cite{fuchsbauer2018}.
+
+In modern use, IND-CCA1 still occurs in settings where post-challenge oracle access is implausible (e.g., certain KEM/DEM designs under one-shot decryption exposure) or as a intermediate step to IND-CCA2. Formal treatments and exercises with complete games, oraclesand reductions can be found in standard texts and course notes~\cite{katzlindell-2nd,princeton-cramershoup}.
+
+\subsection{Algebraic Oracle Implementation}
+
+The key contribution in our formalization is the algebraic oracle that enforces AGM constraints through a two-layer design: interface abstraction and implementation with validation.
+
+\paragraph{Interface Layer: Decryption Oracle Abstraction under AGM.}
+
+We encode the phase-based constraints of the IND-CCA1 game directly into the type and effect system. The decryption oracle interface \texttt{Oracles\_CCA1i} provides initialization \texttt{init} and representation-based decryption \texttt{dec(c, z)}, where vector $z$ represents the algebraic representation of ciphertext group element $c$ relative to the visible base list $l$. The adversary interface \texttt{Adv\_INDCCA1} is decomposed into a ``scouting'' phase \texttt{scout(pk)} (allowing calls to \texttt{O.dec}) and a ``distinguishing'' phase \texttt{distinguish(k, c)} (prohibiting calls to \texttt{O.dec}).
+
+This layered abstraction provides two benefits: First, the game rules (decryption allowed before challenge, forbidden after challenge) are enforced through effect annotations at the type level, avoiding the need to manually exclude illegal calls. Second, requiring representation $z$ makes explicit the core assumption of the Algebraic Group Model (AGM)---that adversaries must provide linear/exponential combinations relative to the ``known set'' $l$ for every queried group element, therefore strictly limiting the adversary's accessible information to the linear space generated by $l$ and enabling precise algebraic reasoning in subsequent reductions.
+
+\begin{lstlisting}[style=easycrypt, caption=Algebraic Oracle Interface, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Interface for oracles used in CCA1 security games **)
+module type Oracles_CCA1i = {
+  proc init(sk_init : sk_t) : unit                    (* Initialize with secret key *)
+  proc dec(c : ctxt_t, z : exp list) : key_t option   (* Decryption with representation *)
+}.
+
+(** Adversary interface for IND-CCA1 game **)
+module type Adv_INDCCA1 (O : Oracles_CCA1i) = {
+  proc scout(pk : pk_t) : unit {O.dec}         (* Phase 1: explore with queries *)
+  proc distinguish(k : key_t, c : ctxt_t) : bool {}  (* Phase 2: distinguish challenge *)
+}.
+\end{lstlisting}
+
+\paragraph{Implementation Layer: Limited Oracle with Query Quota and Representation Validation.}
+
+The module \texttt{O\_CCA1\_Limited} enforces both query quota and representation consistency validation at the implementation level. In \texttt{dec(c, z)} calls, a query is considered valid only when the quota is not exceeded and the condition $c = \texttt{prodEx}(l, z)$ is satisfied. For valid queries, the oracle calls the underlying scheme's decryption algorithm \texttt{S.dec} to obtain the session key and incorporates it into the base list $l$ and query log $qs$, thereby monotonically expanding the adversary's visible linear space. For invalid queries, a placeholder value \texttt{witness} is returned to avoid additional leakage.
+
+This implementation realizes the minimal principle of ``queryable implies learnable'': adversaries can only incorporate new group elements that are genuinely obtained through valid queries into subsequent representations. Meanwhile, the interface layer already prohibits calling \texttt{dec} after the challenge phase, strictly consistent with IND-CCA1's non-adaptive constraints.
+
+\begin{lstlisting}[style=easycrypt, caption=Limited Oracle Implementation with Validation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Limited CCA1 Oracle Implementation **)
+module O_CCA1_Limited (S : Scheme)  : Oracles_CCA1i= {
+  var sk : sk_t                                  (* Secret key *)
+  var qs : (ctxt_t * key_t option) list         (* Query history *)
+  var l : group list                            (* List of group elements seen *)
+
+  (* Initialize oracle with secret key *)
+  proc init(sk_init : sk_t) = {
+    sk <- sk_init;
+    qs <- [];          (* Empty query list *)
+    l <- [];           (* Empty group element list *)
+  }
+  
+  (* Decryption oracle with representation checking *)
+  proc dec(c : ctxt_t, z : exp list) : key_t option = {
+    var p : key_t option;
+    var invalid_query : bool;
+
+    (* Check if query is valid: 
+       - Haven't exceeded q queries
+       - Ciphertext matches expected representation *)
+    invalid_query <- (q < size qs + 2  \/ c <> prodEx l z);
+
+    (* Perform actual decryption using scheme *)
+    p <@ S.dec(c, sk);
+
+    (* Update state only if query was valid *)
+    if (!invalid_query) {
+      l <- oget p :: l ;           (* Add decrypted key to list *)
+      qs <- (c, p) :: qs;      (* Record query *)
+    }
+
+    (* Return result or witness if invalid *)
+    return (if !invalid_query then p else witness);
+  }
+}.
+\end{lstlisting}
+
+\section{q-DDH Assumption}
+\label{sec:q-ddh-assumption}
+
+The q-Decisional Diffie-Hellman (q-DDH) assumption generalizes the standard DDH assumption to handle multiple powers of a secret exponent.
+
+In particular, the \textit{Decisional Diffie--Hellman (DDH)} assumption is one of the fundamental hardness assumptions in public-key cryptography, which states that, given a group generator $g$ and elements $g^x, g^r$, it is computationally infeasible to determine whether a third element is $g^{xr}$ or just a random group element. 
+
+The \textit{q-Decisional Diffie--Hellman (q-DDH)} assumption extends this idea to more structured setting, where the adversary additionally observes multiple powers of the same secret exponent. 
+In particular, even with access to $g^x, g^{x^2}, \ldots, g^{x^q}$, it should be infeasible for any efficient adversary to distinguish a true Diffie-Hellman pair from a randomly generate one~\cite{ddh2015}.
+
+\begin{definition}[q-DDH Problem]
+\label{def:q-ddh-problem}
+Let $\mathcal{G}$ be a cyclic group of prime order $p$ with generator $g$. The q-DDH problem asks to distinguish between the following distributions:
+\begin{align}
+\mathcal{D}_0 &= (g, g^x, g^{x^2}, \ldots, g^{x^q}, g^r, g^{xr}) \\
+\mathcal{D}_1 &= (g, g^x, g^{x^2}, \ldots, g^{x^q}, g^r, g^{xr+z})
+\end{align}
+where $x, r, z \leftarrow \mathbb{Z}_p$ are chosen uniformly at random.
+\end{definition}
+
+\begin{assumption}[q-DDH Assumption]
+\label{ass:q-ddh}
+For any polynomial-time algorithm $\mathcal{B}$, the q-DDH advantage
+\[
+\mathsf{Adv}^{q\text{-DDH}}_{\mathcal{G}}(\mathcal{B}) = \left| \Pr[\mathcal{B}(\mathcal{D}_0) = 1] - \Pr[\mathcal{B}(\mathcal{D}_1) = 1] \right|
+\]
+is negligible.
+\end{assumption}
+
+\subsection{EasyCrypt Formalization of q-DDH}
+
+The q-DDH game is implemented in EasyCrypt as follows:
+
+\begin{lstlisting}[style=easycrypt, caption=q-DDH Game Implementation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** q-DDH adversary interface **)
+module type A_qDDH = {
+  proc guess(gtuple : group list) : bool  (* Distinguish q-DDH tuple *)
+}.
+
+(** q-DDH game: distinguish (g, g^x, g^{x^2}, ..., g^{x^q}, g^r, g^{xr}) 
+    from (g, g^x, g^{x^2}, ..., g^{x^q}, g^r, g^z) where z is random **)
+module QDDH (A : A_qDDH)  = {
+  proc main() : bool = {
+      var x, r, z , b_int;
+      var gtuple : group list;
+      var challenge : group;
+      var b, b' : bool;
+
+      (* Sample random values *)
+      x <$ dt;   (* Secret base *)
+      r <$ dt;   (* Random for challenge *)
+      z <$ dt;   (* Random alternative *)
+
+      b <$ {0,1};  (* Bit determining real or random *)
+    
+      (* Convert boolean to integer for computation *)
+      b_int <- (if b then ZModE.zero else ZModE.one);
+
+      (* Create q-DDH tuple: g^x, g^{x^2}, ..., g^{x^q} *)
+      gtuple <- map (fun i => g^(exp x i)) (range 1 (q+1));
+
+      (* Challenge element: either g^{xr} (real) or g^{xr+z} (random) *)
+      challenge <- g^((x * r) + (z * b_int));
+      
+      (* Give adversary the tuple: [g^x, ..., g^{x^q}, g^r, challenge] *)
+      b' <@ A.guess(gtuple ++ [g^r] ++ [challenge]);
+
+      (* Adversary wins if they distinguish correctly *)
+      return b = b';
+  }
+}.
+\end{lstlisting}
+
+The program first defines the adversary interface \texttt{A\_qDDH}, where the single procedure \texttt{guess(gtuple)} receives a list of group elements and outputs a boolean value, representing the adversary's binary judgment about the source of the input vector.
+
+Subsequently, the main procedure of the game module \texttt{QDDH(A)} is presented. It first declares exponent field elements $x$, $r$, $z$, $b\_int$, a group element list $gtuple$, a single group element $challenge$, and boolean variables $b$, $b'$. The program then independently and uniformly samples from distribution $dt$ to obtain the secret exponent $x$, the random exponent $r$ used for constructing the challenge, and the additional random quantity $z$, and flips a coin to get bit $b$.
+
+The program converts the boolean value $b$ to an element $b\_int$ in the exponent field, following the rule that when $b$ is true, it takes zero, and when $b$ is false, it takes one. Subsequently, it generates the list $gtuple$ using \texttt{map (fun i => g\^(exp x i)) (range 1 (q+1))}, which computes term by term according to the exponential powers $x^1, x^2, \ldots, x^q$ to obtain $[g^x, g^{x^2}, \ldots, g^{x^q}]$.
+
+The challenge element $challenge$ is constructed through an exponential linear combination: $g^{(x \cdot r) + (z \cdot b\_int)}$. Therefore, when $b$ is true ($b\_int = 0$), the challenge is $g^{xr}$, and when $b$ is false ($b\_int = 1$), the challenge is $g^{xr+z}$.
+
+The complete vector is then concatenated as \texttt{gtuple ++ [g\^{}r] ++ [challenge]}, which appends $g^r$ and the challenge element sequentially after the prefix $[g^x, \ldots, g^{x^q}]$. This string of group elements is passed to the adversary procedure \texttt{A.guess} to obtain output $b'$.
+
+Finally, the game returns the boolean value $b = b'$ as the result of one trial: if the adversary's judgment $b'$ matches the hidden bit $b$, it returns true, indicating that the adversary successfully distinguished in this round; otherwise, it returns false.
+
+Overall, this process implements: sampling key-related vectors and a challenge element controlled by a bit, passing them to the adversary to make a guess, and using whether the adversary guesses correctly as the output of this round of the game.
+
+\section{Mathematical Foundations}
+\label{sec:mathematical-foundations}
+
+Our formalization builds upon a comprehensive linear algebra library that enables precise manipulation of algebraic representations while maintaining faithful correspondence with group operations.
+These mathematical structures are fully implemented and verified within the \textsc{EasyCrypt} proof assistant, giving a machine-checked foundation for the algebraic reasoning used in subsequent sections.
+\subsection{Core Linear Algebra Library}
+
+The heart of our approach lies in a comprehensive library for manipulating linear combinations in the exponent field while maintaining consistency with group operations.
+
+\paragraph{Basic Group Operations.}
+
+\begin{lstlisting}[style=easycrypt, caption=Basic Group Operations, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Product of a list of group elements *)
+op prod (elements : group list) = foldr ( * ) e elements.
+
+(* Exponentiation: compute bases[i]^exps[i] for all i, return as list *)
+op ex (bases : group list)(exps : exp list) =
+  (map (fun (i : group * exp) => i.`1 ^ i.`2) (zip bases exps)).
+
+(* Product of exponentiation: compute product of ex(bases, exps) *)
+op prodEx (bases : group list)(exps : exp list) =
+  prod (ex bases exps).
+\end{lstlisting}
+
+The \texttt{prodEx} operator is our core abstraction, computing:
+\[
+\mathsf{prodEx}(\mathbf{g}, \mathbf{a}) = \prod_{i=0}^{n-1} g_i^{a_i}
+\]
+where $\mathbf{g} = (g_0, g_1, \ldots, g_{n-1})$ and $\mathbf{a} = (a_0, a_1, \ldots, a_{n-1})$.
+
+\paragraph{Vector Operations in the Exponent Field.}
+
+\subparagraph{Zero Vector (\texttt{zerov})}
+
+The zero vector operation creates a vector of length $q+1$ filled with zero elements:
+
+\begin{equation}
+\texttt{zerov} = \underbrace{[0, 0, \ldots, 0]}_{q+1 \text{ elements}}
+\end{equation}
+
+\begin{lstlisting}[style=easycrypt, caption=Zero Vector Definition, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Zero vector of length q+1 *)
+op zerov = nseq (q+1) zero.
+\end{lstlisting}
+
+This serves as the additive identity for vector operations and the initial value for vector accumulation.
+
+\subparagraph{Vector Addition (\texttt{addv})}
+
+Vector addition performs pointwise addition of corresponding elements from two vectors:
+
+\begin{equation}
+\texttt{addv}(a, b) = [a_1 + b_1, a_2 + b_2, \ldots, a_n + b_n]
+\end{equation}
+
+where $a = [a_1, a_2, \ldots, a_n]$ and $b = [b_1, b_2, \ldots, b_n]$.
+
+\begin{lstlisting}[style=easycrypt, caption=Vector Addition, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Vector addition: pointwise addition *)
+op addv (a b : exp list) = 
+  map (fun (x : exp * exp) => x.`1 + x.`2) (zip a b).
+\end{lstlisting}
+
+This operation is commutative and associative, forming the basis for linear combinations of algebraic representations.
+
+\subparagraph{Vector Multiplication (\texttt{mulv})}
+
+Vector multiplication performs pointwise (Hadamard) multiplication of corresponding elements:
+
+\begin{equation}
+\texttt{mulv}(a, b) = [a_1 \cdot b_1, a_2 \cdot b_2, \ldots, a_n \cdot b_n]
+\end{equation}
+
+\begin{lstlisting}[style=easycrypt, caption=Vector Multiplication, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Vector multiplication: pointwise multiplication *)
+op mulv (a b : exp list) = 
+  map (fun (x : exp * exp) => x.`1 * x.`2) (zip a b).
+\end{lstlisting}
+
+This operation is used for combining exponent vectors when computing products of group elements.
+
+\subparagraph{Scalar Multiplication (\texttt{scalev})}
+
+Scalar multiplication multiplies each element of a vector by a scalar value:
+
+\begin{equation}
+\texttt{scalev}(a, s) = [s \cdot a_1, s \cdot a_2, \ldots, s \cdot a_n]
+\end{equation}
+
+where $s$ is a scalar and $a = [a_1, a_2, \ldots, a_n]$.
+
+\begin{lstlisting}[style=easycrypt, caption=Scalar Multiplication, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Scalar multiplication: multiply vector by scalar *)
+op scalev (a : exp list)(b : exp) = map (fun x => x*b) a.
+\end{lstlisting}
+
+This operation enables scaling of algebraic representations, crucial for constructing linear combinations in AGM proofs.
+
+\subparagraph{Vector Sum (\texttt{sumv})}
+
+Vector sum computes the sum of a list of vectors using fold-right with vector addition:
+
+\begin{equation}
+\texttt{sumv}([v_1, v_2, \ldots, v_k]) = v_1 + v_2 + \cdots + v_k
+\end{equation}
+
+where each $v_i$ is a vector and $+$ denotes vector addition (\texttt{addv}).
+
+\begin{lstlisting}[style=easycrypt, caption=Vector Sum, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Sum of vectors: fold addition over list of vectors *)
+op sumv (a : exp list list) = foldr addv zerov a.
+\end{lstlisting}
+
+This operation aggregates multiple algebraic representations into a single representation, essential for oracle simulation.
+
+\subparagraph{Shift and Truncate (\texttt{shift\_trunc})}
+
+The shift and truncate operation prepends a zero to the vector and then takes the first $q+1$ elements:
+
+\begin{equation}
+\texttt{shift\_trunc}([v_1, v_2, \ldots, v_n]) = [0, v_1, v_2, \ldots, v_q]
+\end{equation}
+
+This ensures the result has exactly $q+1$ elements, maintaining consistent vector dimensions.
+
+\begin{lstlisting}[style=easycrypt, caption=Shift and Truncate Operation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Shift and truncate operation for oracle simulation *)
+op shift_trunc (v : exp list) = take (q+1) (zero :: v).
+\end{lstlisting}
+
+This operation is particularly important in oracle simulation where new group elements must be incorporated into the existing algebraic representation while maintaining the proper dimensionality for the $q$-DDH structure.
+
+\paragraph{Key Algebraic Properties and Lemmas}
+
+The correctness of our reduction relies on several fundamental algebraic properties that we establish through formal lemmas. These lemmas are essential for the oracle simulation and reduction construction.
+
+\begin{lemma}[Linear Distributivity for prodEx]
+\label{lem:prodex-addv-distributive}
+For group element list $bases$ and exponent lists $a, b$ of matching sizes:
+\[
+\mathsf{prodEx}(bases, \mathsf{addv}(a, b)) = \mathsf{prodEx}(bases, a) \cdot \mathsf{prodEx}(bases, b)
+\]
+\end{lemma}
+\noindent \textit{Proof:}  Section~\ref{sec:distributivity-proofs}.
+
+\begin{lemma}[Product Exponentiation Distributivity]
+\label{lem:prod-exp-distributive}
+For any group list $gs$ and exponent $n$:
+\[
+(\prod gs)^n = \prod(\text{map}(\lambda g \rightarrow g^n, gs))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:distributivity-proofs}.
+
+\begin{lemma}[Scaling Consistency (Primary)]
+\label{lem:prodex-scale1}
+For any group element list $bases$, exponent list $exp$, and scalar $scala$:
+\[
+\mathsf{prodEx}(bases, exp)^{scala} = \mathsf{prodEx}(bases, \mathsf{scalev}(exp, scala))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:distributivity-proofs}.
+
+\begin{lemma}[Scaling Consistency (Alternative)]
+\label{lem:prodex-scale2}
+For any group element list $bases$, exponent list $exp$, and scalar $scale$:
+\[
+\mathsf{prodEx}(bases, exp)^{scale} = \mathsf{prodEx}(\mathsf{ex}(bases, \mathsf{nseq}(\mathsf{size}(bases), scale)), exp)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:distributivity-proofs}.
+
+\begin{lemma}[Zero Vector Identity]
+\label{lem:prodex-nseq-zero}
+The product with a zero vector yields the identity element:
+\[
+\mathsf{prodEx}(bases, \mathsf{nseq}(n, zero)) = e \quad \text{for } n \geq 0
+\]
+\end{lemma}
+\noindent \textit{Proof:}  Section~\ref{sec:zero-vector-proofs}.
+
+\begin{lemma}[Shift-Truncate Property]
+\label{lem:prodex-shift-trunc}
+For bases and exponents of size $q+1$ where the last element of $exps$ is zero:
+\[
+\mathsf{prodEx}(bases, \mathsf{shift\_trunc}(exps)) = \mathsf{prodEx}(\mathsf{behead}(bases), exps)
+\]
+\end{lemma}
+\noindent \textit{Proof:}  Section~\ref{sec:shift-trunc-proofs}.
+
+\begin{lemma}[Empty Vector Properties]
+\label{lem:prodex-nil}
+Products with empty vectors yield the identity:
+\begin{align}
+\mathsf{prodEx}(bases, []) &= e \\
+\mathsf{prodEx}([], exps) &= e \\
+\mathsf{prodEx}([], []) &= e
+\end{align}
+\end{lemma}
+\noindent \textit{Proof:}  Section~\ref{sec:zero-vector-proofs}.
+
+\begin{lemma}[Vector Addition with Empty Operands]
+\label{lem:addv-nil}
+Vector addition with empty operands:
+\begin{align}
+\mathsf{addv}([], b) &= [] \\
+\mathsf{addv}(a, []) &= [] \\
+\mathsf{sumv}([]) &= \mathsf{zerov}
+\end{align}
+\end{lemma}
+\noindent \textit{Proof:} Section~\ref{sec:vector-addition-proofs}.
+
+\begin{lemma}[Size Preservation]
+\label{lem:size-preservation}
+Vector operations preserve or predictably modify sizes:
+\begin{align}
+\mathsf{size}(\mathsf{scalev}(v, s)) &= \mathsf{size}(v) \\
+\mathsf{size}(\mathsf{addv}(a, b)) &= \min(\mathsf{size}(a), \mathsf{size}(b)) \\
+\mathsf{size}(\mathsf{shift\_trunc}(v)) &= \min(q+1, \mathsf{size}(v) + 1)
+\end{align}
+\end{lemma}
+\noindent \textit{Proof:} Section~\ref{sec:size-preservation-proofs}.
+
+\begin{lemma}[Cons Operation for prodEx]
+\label{lem:prodex-cons}
+For a group element $g$, group list $gs$, exponent $e$, and exponent list $es$:
+\[
+\mathsf{prodEx}(g :: gs, e :: es) = g^e \cdot \mathsf{prodEx}(gs, es)
+\]
+\[
+\mathsf{prodEx}(g :: gs, zero :: es) =  \mathsf{prodEx}(gs, es)
+\]
+\end{lemma}
+\noindent \textit{Proof:} Section~\ref{sec:prod-cons-proofs}.
+
+\begin{lemma}[Double prodEx Composition]
+\label{lem:prodex-ex}
+For any base list $b$ and exponent lists $e1$, $e2$:
+\[
+\mathsf{prodEx}(\mathsf{ex}(b, e1), e2) = \mathsf{prodEx}(b, \mathsf{mulv}(e1, e2))
+\]
+\end{lemma}
+This lemma establishes the equivalence between nested prodEx operations and pointwise multiplication of exponent vectors. In mathematical notation:
+
+\[
+\prod_{i=0}^{n-1} \left(b_i^{e1_i}\right)^{e2_i} = \prod_{i=0}^{n-1} b_i^{e1_i \cdot e2_i}
+\]
+
+\noindent \textit{Proof:} See Section~\ref{sec:prodexnew-proofs}.
+
+\begin{lemma}[Ex-Map-prodEx Equivalence]
+\label{lem:ex-map-prodex}
+For bases, exps, and constant $c$ with matching sizes:
+\[
+\mathsf{ex}(\text{map}(\mathsf{prodEx}(bases), exps), \mathsf{nseq}(\mathsf{size}(exps), c)) = \text{map}(\mathsf{prodEx}(\mathsf{ex}(bases, \mathsf{nseq}(\mathsf{size}(bases), c))), exps)
+\]
+\end{lemma}
+
+This lemma shows the commutativity between mapping and exponentiation operations. In expanded form:
+
+\[
+\prod_{j=0}^{m-1} \left(\prod_{i=0}^{n-1} bases_i^{exps_j[i]}\right)^c = \text{map}\left(\lambda exp\_vec \rightarrow \prod_{i=0}^{n-1} (bases_i^c)^{exp\_vec[i]}, exps\right)
+\]
+
+\noindent \textit{Proof:} See Section~\ref{sec:prodexnew-proofs}.
+
+\begin{lemma}[prodEx Map with Range]
+\label{lem:prodex-map}
+For generator $g$, exponent $x$, and range $[s, e)$:
+\[
+\text{map}(\lambda i \rightarrow g^{x^i}, \text{range}(s, e)) = \mathsf{ex}(\mathsf{nseq}(e-s, g), \text{map}(\lambda i \rightarrow x^i, \text{range}(s, e)))
+\]
+\end{lemma}
+
+This lemma provides an algebraic representation for geometric sequences of group elements:
+
+\[
+[g^{x^s}, g^{x^{s+1}}, \ldots, g^{x^{e-1}}] = \mathsf{ex}([g, g, \ldots, g], [x^s, x^{s+1}, \ldots, x^{e-1}])
+\]
+\noindent \textit{Proof:} See Section~\ref{sec:prodexnew-proofs}.
+
+\subsection{Advanced Algebraic Manipulation Lemmas}
+
+The oracle simulation and reduction construction require sophisticated algebraic manipulations beyond basic vector operations. The following lemmas establish advanced properties for range operations, vector transformations, and structural manipulations that are essential for the correctness of our bilateral reduction.
+
+\begin{lemma}[Range Simplification]
+\label{lem:q0-simp}
+For any secret key $sk$:
+\[
+g :: \text{map}(\lambda i \rightarrow g^{sk^i}, \text{range}(1, q+1)) = \text{map}(\lambda i \rightarrow g^{sk^i}, \text{range}(0, q+1))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:range-simplification-proofs}.
+
+\begin{lemma}[Ex Cons Distribution]
+\label{lem:ex-cons-general}
+For group element $x$, group list $xs$, exponent $e$, and exponent list $es$:
+\[
+\mathsf{ex}(x :: xs, e :: es) = (x^e) :: \mathsf{ex}(xs, es)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:ex-cons-proofs}.
+
+\begin{lemma}[Ex Range Shift Property]
+\label{lem:ex-range-shift}
+For secret key $sk$:
+\[
+\mathsf{ex}(\text{map}(\lambda i \rightarrow g^{sk^i}, \text{range}(0, q+1)), \mathsf{nseq}(q+1, sk)) = \text{map}(\lambda i \rightarrow g^{sk^i}, \text{range}(1, q+2))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:ex-range-shift-proofs}.
+
+\begin{lemma}[Scalev of Nseq]
+\label{lem:scalev-nseq}
+For integer $n$, exponents $x$ and $c$:
+\[
+\mathsf{scalev}(\mathsf{nseq}(n, x), c) = \mathsf{nseq}(n, x \cdot c)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:scalev-nseq-proofs}.
+
+\begin{lemma}[Drop-Addv Commutativity]
+\label{lem:drop-addv}
+For vectors $u, v$ of equal size and integer $n$:
+\[
+\mathsf{drop}(n, \mathsf{addv}(u, v)) = \mathsf{addv}(\mathsf{drop}(n, u), \mathsf{drop}(n, v))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:drop-addv-proofs}.
+
+\begin{lemma}[Addv Size Inequality]
+\label{lem:addv-neq}
+For vectors $a, b$ with $\mathsf{size}(a) \leq \mathsf{size}(b)$:
+\[
+\mathsf{addv}(a, b) = \mathsf{addv}(a, \mathsf{take}(\mathsf{size}(a), b))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:addv-neq-proofs}.
+
+\begin{lemma}[Drop-Sumv Commutativity]
+\label{lem:drop-sumv}
+For non-empty list $xs$ of uniform-sized vectors and valid index $n$:
+\[
+\mathsf{drop}(n, \mathsf{sumv}(xs)) = \mathsf{sumv}(\text{map}(\mathsf{drop}(n), xs))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:drop-sumv-proofs}.
+
+\begin{lemma}[Sumv of Zero Vectors]
+\label{lem:sumv-nseq-zerov}
+For non-negative integer $n$:
+\[
+\mathsf{sumv}(\mathsf{nseq}(n, \mathsf{zerov})) = \mathsf{zerov}
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:sumv-zerov-proofs}.
+
+\begin{lemma}[Sumv of Singleton Zero Vectors]
+\label{lem:sumv-nseq-zero-singleton}
+For positive integer $n$:
+\[
+\mathsf{sumv}(\mathsf{nseq}(n, \mathsf{nseq}(1, zero))) = \mathsf{nseq}(1, zero)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:sumv-singleton-proofs}.
+
+\begin{lemma}[Zip Concatenation Distributivity]
+\label{lem:zip-cat-distributive}
+For lists $a_1, a_2, b_1, b_2$ with $\mathsf{size}(a_1) = \mathsf{size}(b_1)$:
+\[
+\mathsf{zip}(a_1 \mathbin{++} a_2, b_1 \mathbin{++} b_2) = \mathsf{zip}(a_1, b_1) \mathbin{++} \mathsf{zip}(a_2, b_2)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:zip-cat-proofs}.
+
+\begin{lemma}[Product Concatenation]
+\label{lem:prod-cat}
+For group lists $xs$ and $ys$:
+\[
+\prod(xs \mathbin{++} ys) = \prod(xs) \cdot \prod(ys)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:prod-cat-proofs}.
+
+\begin{lemma}[prodEx Split with Last Zero]
+\label{lem:prodex-split-last-zero}
+For equal-sized lists $bases$ and $exps$ where the last exponent is zero:
+\[
+\mathsf{prodEx}(bases, exps) = \mathsf{prodEx}(\mathsf{take}(\mathsf{size}(bases)-1, bases), \mathsf{take}(\mathsf{size}(exps)-1, exps))
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:prodex-split-proofs}.
+
+\begin{lemma}[Behead-Drop Equivalence]
+\label{lem:behead-drop}
+For any group list $base$:
+\[
+\mathsf{behead}(base) = \mathsf{drop}(1, base)
+\]
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:behead-drop-proofs}.

@@ -1,0 +1,344 @@
+\chapter{Formal Proofs of Key Lemmas}
+\label{appendix:formal-proofs}
+
+
+
+This appendix contains the complete EasyCrypt proofs for the key lemmas used in our vector operations and algebraic manipulations. These proofs are extracted directly from our \texttt{INDCCA.ec} file without modification.
+
+\section{Distributivity and Scaling Proofs}
+\label{sec:distributivity-proofs}
+
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Product Exponentiation Distributivity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Distributivity: (prod gs)^n = prod (map (^n) gs) *)
+lemma prod_exp_distributive (gs : group list) (n : exp) :
+  prod gs ^ n = prod (map (fun g => g ^ n) gs).
+proof.
+  elim: gs => [|g gs IH] //=. 
+  smt(@G @GP @List). 
+  rewrite /= !prod_cons. 
+  have exp_mult_dist: (g * prod gs) ^ n = g ^ n * (prod gs) ^ n. 
+    smt(@G @GP).
+  rewrite exp_mult_dist. rewrite IH. smt().
+qed.
+\end{lstlisting}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Scaling Consistency (Primary), breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Scaling lemma: prodEx with scaled exponents *)
+lemma prodExScale1 bases exp scala :
+    prodEx bases exp ^ scala = prodEx bases (scalev exp scala).
+proof.
+  rewrite /prodEx. rewrite /ex. rewrite !prod_exp_distributive. congr. 
+  rewrite /scalev. search zip. rewrite zip_mapr. 
+  rewrite -!map_comp. congr. apply fun_ext => xy.
+  by case: xy => [x y] /=; rewrite /(\o) /= expM.
+qed.
+\end{lstlisting}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Scaling Consistency (Alternative), breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Alternative scaling lemma using ex *)
+lemma prodExScale2 bases exp scale :
+    prodEx bases exp ^ scale = prodEx (ex bases (nseq (size bases) scale)) exp.
+proof.
+  rewrite prodExScale1. rewrite !/prodEx /ex. congr.
+  elim: bases exp => [|base_h base_t IH] [|exp_h exp_t] //=.
+  rewrite !zip_nil_l. smt(). 
+  rewrite !zip_nil_l. smt(). 
+  rewrite zip_nil_r. rewrite /scalev. rewrite zip_nil_r. smt(). 
+  rewrite /scalev /=. simplify.
+  have nseq_cons: nseq (1 + size base_t) scale = scale :: nseq (size base_t) scale. 
+    rewrite -nseqS. smt(size_ge0). smt(@G). 
+  rewrite nseq_cons. simplify.
+  split. smt(@G @GP). rewrite IH. smt().
+qed.
+\end{lstlisting}
+\begin{lstlisting}[style=easycrypt, caption=Proof of Linear Distributivity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Addition distributivity for prodEx *)
+lemma prod_ex_addv (base : group list) (a b : exp list) :
+    size a = size base => size b = size base =>
+    prod (ex base (addv a b)) = prod (ex base a) * prod (ex base b).
+proof.
+  move=> size_a size_b.
+  rewrite /addv.
+  move: a b size_a size_b.
+  elim: base.
+  move=> a b size_a size_b. rewrite /ex. rewrite !zip_nil_l.
+    by smt(@List @G). 
+  move=> g gs IH a b size_a size_b.
+  case: a size_a => [|a_h a_t] size_a; first by smt(@List).
+  case: b size_b => [|b_h b_t] size_b; first by smt(@List). 
+  rewrite /ex !zip_cons !map_cons !prod_cons /=. 
+  rewrite prod_cons expD /ex. rewrite IH. smt(@G @GP). smt(). rewrite /ex. 
+
+  pose A := prod (map (fun (i : group * GP.exp) => i.`1 ^ i.`2) (zip gs a_t)).
+  pose B := prod (map (fun (i : group * GP.exp) => i.`1 ^ i.`2) (zip gs b_t)).
+  pose X := g ^ a_h.
+  pose Y := g ^ b_h. 
+  rewrite mulcA. rewrite mulcA. congr.
+
+  have com : Y * A = A * Y. rewrite mulcC. smt(). 
+  rewrite -mulcA. rewrite com. 
+  smt(@G @GP). 
+qed.
+
+(* ProdEx distributes over vector addition *)
+lemma prodEx_addv_distributive (bases : group list) (a b : exp list) :
+   size a = size bases => size b = size bases =>
+   prodEx bases (addv a b) = prodEx bases a * prodEx bases b.
+proof.
+    move => ha hb.
+    rewrite /prodEx prod_ex_addv. smt(). smt(). smt().
+qed.
+\end{lstlisting}
+
+\section{Zero Vector and Identity Proofs}
+\label{sec:zero-vector-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Zero Vector Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* ProdEx with all zero exponents is identity *)
+lemma prodEx_nseq_zero (bases : group list) (n : int) :
+  0 <= n =>
+  prodEx bases (nseq n zero) = e.
+proof.
+  move=> ge0_n.
+  rewrite /prodEx /ex.
+  elim: bases n ge0_n => [|g gs IH] n ge0_n.
+  - (* bases = [] *)
+    by rewrite zip_nil_l map_nil prod_nil.
+  - (* bases = g :: gs *)
+    case: (n = 0) => [n_zero | n_pos].
+    + (* n = 0 *)
+      rewrite n_zero nseq0.
+      by rewrite zip_nil_r map_nil prod_nil.
+    + (* n > 0 *)
+  have n_gt0: 0 < n by smt().
+  have nseq_cons: nseq n zero = zero :: nseq (n-1) zero.  
+  rewrite -nseqS. smt(). simplify. trivial.
+  rewrite nseq_cons zip_cons map_cons prod_cons /= exp0 IH. 
+  smt(). smt(@G @GP).
+qed.
+
+(* ProdEx with empty exponent list is identity *)
+lemma prodEx_nil_r (bases : group list) :
+  prodEx bases [] = e.
+proof.
+  rewrite /prodEx /ex.
+  rewrite zip_nil_r.
+  rewrite map_nil.
+  rewrite prod_nil.
+  trivial.
+qed.
+
+lemma prodEx_nil_l (exps : exp list) :
+  prodEx [] exps = e.
+proof.
+  rewrite /prodEx /ex.
+  rewrite zip_nil_l.
+  rewrite map_nil.
+  rewrite prod_nil.
+  trivial.
+qed.
+
+lemma prodEx_nil :
+  prodEx [] [] = e.
+proof.
+  by rewrite prodEx_nil_l. 
+qed.
+\end{lstlisting}
+
+\section{Shift-Truncate Operation Proof}
+\label{sec:shift-trunc-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Shift-Truncate Property, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Shift-truncate lemma: key property for oracle simulation *)
+lemma prodExShiftTrunce bases exps:
+       size bases = q +1  =>
+       size exps = q + 1 =>
+       drop q exps = nseq 1 zero =>
+       prodEx bases (shift_trunc exps) = prodEx (behead bases) exps.
+proof.
+      move=>  size_bases size_exps last_zero.
+      rewrite /shift_trunc.
+      have take_eq : (take (q+1) (zero :: exps)) = zero :: (take q exps).
+      smt(@List gt0_q).
+      rewrite take_eq.
+      have exps_split: exps = take q exps ++ [zero].  
+      rewrite -(cat_take_drop q).
+      have h : take q (take q exps ++ drop q exps) = take q exps. 
+      have size_take_q : size(take q exps) = q by smt(@List gt0_q). 
+      rewrite take_size_cat. smt(). smt(). rewrite h. 
+      rewrite last_zero. smt(@List @G @GP).
+      rewrite exps_split.
+      have size_take_q : size(take q exps) = q by smt(@List gt0_q). 
+      rewrite take_size_cat. smt().
+      have base_cons : (head witness bases) :: (behead bases) = bases.
+      have : bases <> []. smt(). 
+      apply head_behead. 
+      have h : (prodEx bases (zero :: take q exps)) =
+      prodEx (head witness bases :: behead bases) (zero :: take q exps). 
+      smt().
+      rewrite h.
+      rewrite prodExCons.
+      pose oversize := (take q exps ++ [zero]).
+      pose a := (behead bases).  
+      rewrite (prodEx_sizele a oversize). smt().  
+      have size_a:  size a = q by smt(@G @List @GP gt0_q).
+      rewrite size_a.   rewrite /oversize. 
+      rewrite take_size_cat. smt(@List @G gt0_q). smt().
+qed.
+\end{lstlisting}
+
+\section{Vector Addition Properties}
+\label{sec:vector-addition-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Vector Addition Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Vector addition with empty left operand *)
+lemma addv_nil_l (b : exp list) :
+  addv [] b = [].
+proof.
+  rewrite /addv.
+  rewrite zip_nil_l.
+  rewrite map_nil.
+  trivial.
+qed.
+
+(* Vector addition with empty right operand *)
+lemma addv_nil_r (a : exp list) :
+  addv a [] = [].
+proof.
+  rewrite /addv.
+  rewrite zip_nil_r.
+  rewrite map_nil.
+  trivial.
+qed.
+
+(* Vector addition with empty operand *)
+lemma addv_empty (a b : exp list) :
+  a = [] \/ b = [] =>
+  addv a b = [].
+proof.
+  case => [a_empty | b_empty].
+  - by rewrite a_empty addv_nil_l.
+  - by rewrite b_empty addv_nil_r.
+qed.
+
+(* Sum of empty vector list is zero vector *)
+lemma sumv_nil :
+  sumv [] = zerov.
+proof.
+  rewrite /sumv. simplify. smt().
+qed.
+
+(* sumv concat lemma*)
+lemma sumv_cons (v : exp list) (vs : exp list list) :
+    sumv (v :: vs) = addv v (sumv vs).
+proof.
+  rewrite /sumv. simplify. smt(). 
+qed.
+\end{lstlisting}
+
+\section{Size Preservation Proofs}
+\label{sec:size-preservation-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Size Preservation Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Size of scaled vector equals original size *)
+lemma size_scalev (v : exp list) (s : exp) :
+  size (scalev v s) = size v.
+proof.
+  rewrite /scalev.
+  by rewrite size_map.
+qed.
+
+(* Size of sum of vectors with uniform size *)
+lemma size_sumv (l : exp list list) :
+  (forall v, v \in l => size v = q + 1) =>
+  size (sumv l) = q + 1.
+proof.
+  elim: l => [|v vs IH] uniform_size.
+  - rewrite sumv_nil /zerov.
+    by rewrite size_nseq ler_maxr // gt0_q.
+  - rewrite sumv_cons.
+    have size_v: size v = q + 1.
+      by apply uniform_size; rewrite in_cons.
+    have size_sumv_vs: size (sumv vs) = q + 1.
+      apply IH => w w_in_vs.
+      by apply uniform_size; rewrite in_cons w_in_vs orbT.
+    rewrite /addv size_map size_zip.
+    by rewrite size_v size_sumv_vs minrr.
+qed.
+\end{lstlisting}
+
+
+\section{prodEx cons Proofs}
+\label{sec:prod-cons-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Size Preservation Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Cons with zero exponent lemma *)
+lemma prodExCons bs e b :
+  prodEx (b :: bs) (zero :: e) = prodEx bs e.
+proof.
+  rewrite /prodEx /ex. rewrite zip_cons. rewrite map_cons. rewrite prod_cons. 
+  rewrite /= exp0. smt(@G @GP @List).
+qed.
+
+(* General cons lemma for prodEx *)
+lemma prodExConsGeneral (g : group) (gs : group list) (e : exp) (es : exp list) :
+  prodEx (g :: gs) (e :: es) = g ^ e * prodEx gs es.
+proof.
+  rewrite /prodEx /ex.
+  rewrite zip_cons map_cons prod_cons.
+  trivial.
+qed.
+\end{lstlisting}
+
+\section{prodEx map Proofs}
+\label{sec:prodexnew-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Size Preservation Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Double prodEx composition *)
+lemma prodExEx b e1 e2 :
+    prodEx (ex b e1) e2 = prodEx b (mulv e1 e2).
+proof.
+  rewrite /prodEx /ex /mulv. rewrite zip_mapl. rewrite zip_mapr. 
+  rewrite -!map_comp. congr. rewrite /(\o) /=.
+  elim: b e1 e2 => [|g_h g_t IH] [|e1_h e1_t] [|e2_h e2_t] //=.
+  split. smt(@G @GP). by apply IH.
+qed.
+
+
+
+(* Ex with map and constant scaling *)
+lemma ex_map_prodEx bases exps size_bases size_exps c :
+    size_bases = size bases => size_exps = size exps =>
+    ex (map (prodEx bases) exps) (nseq size_exps c) = 
+    map (prodEx (ex bases (nseq size_bases c))) (exps).
+proof. 
+  move => h h0. apply (eq_from_nth g). smt(@List). 
+  move => i hi. rewrite /ex.
+  rewrite (nth_map (witness, witness) g). smt(@List size_ge0). 
+  rewrite nth_zip. smt(size_ge0 @List). simplify. 
+  rewrite (nth_map witness). smt(size_ge0 @List).
+  rewrite nth_nseq. smt(size_ge0 @List).
+
+  have inner_ex: 
+    map (fun (i0 : group * GP.exp) => i0.`1 ^ i0.`2) (zip bases (nseq size_bases c)) = 
+      ex bases (nseq size_bases c). 
+    rewrite /ex //. 
+  rewrite inner_ex. 
+  rewrite (nth_map (witness ) g). smt(size_ge0 @List). 
+  rewrite h.
+  rewrite -prodExScale2. smt().
+qed.
+  
+(* Map exponentiation with range *)
+lemma prodExMap g (x : exp) (s e : int) :
+    map (fun i => g ^ exp x i) (range s e) = 
+    ex (nseq (e-s) g) (map (fun i => exp x i) (range s e)).
+proof.
+  apply (eq_from_nth g). smt(@List). 
+  move => i hi. rewrite (nth_map 0). smt(@List).
+  move => @/ex. rewrite (nth_map (g,zero)). smt(@List). 
+  simplify. smt(@List).
+qed.
+
+\end{lstlisting}

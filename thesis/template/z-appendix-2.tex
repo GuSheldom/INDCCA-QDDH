@@ -1,0 +1,411 @@
+\chapter{Formal Proofs of Advanced Algebraic Lemmas}
+\label{appendix:advanced-lemma-proofs}
+
+This appendix contains the complete EasyCrypt proofs for the advanced algebraic manipulation lemmas. These proofs are extracted directly from our \texttt{INDCCA.ec} file without modification and demonstrate the sophisticated reasoning required for oracle simulation.
+
+\section{Range Simplification Proofs}
+\label{sec:range-simplification-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Range Simplification, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Simplification: prepending g to powers equals mapping from 0 *)
+lemma q0_simp (sk : exp) :
+      (g :: map (fun (i : int) => g ^ exp sk (i))(range 1 (q+1 ))) =
+      map (fun (i : int) => g ^ exp sk (i))(range 0 (q + 1 )).
+ proof. 
+  have range_split: range 0 (q + 1) = 0 :: range 1 (q + 1).
+  smt(@ G @GP @List gt0_q). rewrite range_split map_cons.
+  congr. smt(@G @GP).
+qed.
+\end{lstlisting}
+
+\section{Ex Cons Distribution Proofs}
+\label{sec:ex-cons-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Ex Cons Distribution, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Ex operation distributes over cons structure *)
+lemma ex_cons_general:
+  forall (x : group) (xs : group list) (e : ZModE.exp) (es : ZModE.exp list),
+  ex (x :: xs) (e :: es) = (x ^ e) :: ex xs es.
+proof.
+  move => x xs e es .
+  rewrite /ex /=. trivial.
+qed.
+\end{lstlisting}
+
+\section{Ex Range Shift Property Proofs}
+\label{sec:ex-range-shift-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Ex Range Shift Property, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Ex with range shift property *)
+lemma ex_range_shift (sk : exp) :
+  ex (map (fun (i : int) => g ^ exp sk i) (range 0 (q + 1))) (nseq (q + 1) sk) =
+  map (fun (i : int) => g ^ exp sk i) (range 1 (q + 2)).
+    
+proof.
+  rewrite /ex.
+  have Hlen: size (range 0 (q + 1)) = size (nseq (q + 1) sk) by rewrite size_range size_nseq.
+  rewrite zip_mapl -map_comp /(\o). 
+  apply (eq_from_nth witness). 
+  rewrite size_map size_zip size_range size_nseq.
+  smt(@List @G @GP).
+  move=> i hi.
+  rewrite !(nth_map witness) //. smt(@List). smt(@List @G @GP).
+  case (0 <= i < q + 1) => [valid_i|]; last smt(@List).
+  simplify.
+  have zip_nth: nth witness (zip (range 0 (q + 1)) (nseq (q + 1) sk)) i = (i, sk).
+  have range_i: nth witness (range 0 (q + 1)) i = i.
+  rewrite nth_range //.
+  have nseq_i: nth witness (nseq (q + 1) sk) i = sk.
+  rewrite nth_nseq_if valid_i. smt().
+  (* Zip structure property: nth element of zip equals pair of nth elements *)
+  have zip_structure: forall j, 0 <= j < min (size (range 0 (q + 1))) (size (nseq (q + 1) sk)) =>
+  nth witness (zip (range 0 (q + 1)) (nseq (q + 1) sk)) j = 
+  (nth witness (range 0 (q + 1)) j, nth witness (nseq (q + 1) sk) j).
+  move=> j hj. smt(@List).
+  rewrite zip_structure. smt(@List @G @GP).
+  rewrite range_i nseq_i. smt().
+  rewrite zip_nth. rewrite /= nth_range //. 
+  simplify. rewrite -expM. congr.
+  smt(@G @GP @ZModE).
+qed.
+\end{lstlisting}
+
+\section{Scalev of Nseq Proofs}
+\label{sec:scalev-nseq-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Scalev of Nseq, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Scalev of nseq **)
+lemma scalev_nseq (n : int) (x c : ZModE.exp) :
+  scalev (nseq n x) c = nseq n (x * c).
+proof.
+  rewrite /scalev.
+  by rewrite map_nseq.
+qed.
+
+(* Scalev of nseq 0 *)
+lemma scalev_nseq_zero (n : int) (c : ZModE.exp) :
+  scalev (nseq n zero) c = nseq n zero.
+proof.
+  rewrite scalev_nseq. smt(@ZModE).
+qed.
+\end{lstlisting}
+
+\section{Drop-Addv Commutativity Proofs}
+\label{sec:drop-addv-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Drop-Addv Commutativity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Drop commutes with addv **)
+lemma drop_addv (n : int) (u v : ZModE.exp list) :
+  size u = size v => drop n (addv u v) = addv (drop n u) (drop n v).
+    proof.
+    move => size_eq.
+    elim: u v n size_eq => [|u_head u_tail IH] [|v_head v_tail] n //=. smt(). smt().
+    move=> size_eq.
+    case: (n <= 0) => [le0_n|/ltzNge gt0_n]. smt(). smt().
+qed.
+\end{lstlisting}
+
+\section{Addv Size Inequality Proofs}
+\label{sec:addv-neq-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Addv Size Inequality, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Addv with size inequality a <= b*)
+lemma addv_neq a b :
+    size a <= size b => addv a b = addv a (take (size a) b).
+    proof.
+    move=> size_lt.
+    rewrite /addv. 
+    congr. elim: a b size_lt => [|x xs IH] [|y ys] //= size_lt. smt().
+qed.
+\end{lstlisting}
+
+\section{Drop-Sumv Commutativity Proofs}
+\label{sec:drop-sumv-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Drop-Sumv Commutativity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Drop commutes with sumv: dropping elements from sum equals sum of dropped elements
+    This is a key lemma for vector operations in the reduction, showing that
+    drop and sumv operations can be interchanged under certain conditions. *)
+lemma drop_sumv (n : int) (xs : ZModE.exp list list) :
+  xs <> [] =>                              (* xs is non-empty *)
+  all (fun v => size v = q + 1) xs =>     (* all vectors have uniform size q+1 *)
+  0 <= n <= q =>                          (* drop index is valid *)
+  drop n (sumv xs) = sumv (map (drop n) xs).
+proof.
+  move=>  xs_nonempty all_size_eq [ge0_n len_q].
+  (* Establish that xs has at least one element *)
+  have  xs_largeT : 1 <= size xs by smt(@List).
+  move : xs_largeT.
+  (* Induction on the list xs *)
+  elim: xs xs_nonempty all_size_eq => [|v vs IH] xs_nonempty all_size.
+  - (* Base case: xs = [] - contradiction with non-empty assumption *)
+    by []. 
+  (* Inductive case: xs = v :: vs *)
+  have v_size: size v = q + 1 by smt(@List ).                    (* v has size q+1 *)
+  have vs_all_size: all (fun u => size u = q + 1) vs by smt(@List). (* vs elements have size q+1 *)
+  
+  (* Rewrite using sumv_cons and map_cons *)
+  rewrite sumv_cons map_cons sumv_cons.
+  (* Key step: drop commutes with addv since both operands have same size *)
+  rewrite drop_addv. rewrite size_sumv.  smt(@List @ZModE ). smt().
+  move=> size_ge1.
+  have : 0<= size vs.  smt(@List). move => size_ge0.
+  (* Case analysis on whether vs is empty or not
+     Case 1 : vs has at leat 1 elements *)
+  case: (1 <=size vs ) => [vs_ge1|vs_eq0]. rewrite IH.
+  smt(). smt(). smt(). trivial.
+  (* Case 2: vs is empty *)
+  have vs_empty : vs = [] by smt(@List). rewrite vs_empty map_nil.
+  (* When vs is empty, sumv vs = zerov *)
+  rewrite sumv_nil.  rewrite /zerov.
+  (* Use addv_neq to handle size mismatch between drop n v and zerov *)
+  rewrite (addv_neq (drop n v) (nseq (q + 1) zero)).
+  rewrite size_drop. smt(). rewrite v_size size_nseq. have rev : 0 < q + 1 -n  by smt().
+  rewrite !StdOrder.IntOrder.ler_maxr. smt(). smt().  smt().
+  (* Establish size equality for the final step *)
+  have : size (drop n v) = q + 1 -n. rewrite size_drop. smt(). rewrite v_size. smt(@GP @G).
+  move => size_dd. rewrite size_dd.  congr. 
+  (* Final simplification using drop_nseq_eq_take *)
+  rewrite drop_nseq_eq_take. smt(). trivial.
+qed.
+\end{lstlisting}
+
+\section{Sumv of Zero Vectors Proofs}
+\label{sec:sumv-zerov-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Sumv of Zero Vectors, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Sum of n copies of zero vector equals zero vector
+    This lemma establishes that summing any number of zero vectors gives the zero vector,
+    which is fundamental for vector arithmetic in the reduction. **)
+
+lemma sumv_nseq_zerov (n : int) : 
+     0 <= n =>
+     sumv (nseq n zerov) = zerov.
+proof.
+         elim/natind: n => [n le0_n|n ge0_n IH].
+  - (* Base case: n <= 0 *)
+    move=> _.
+    (* When n <= 0, nseq gives empty list, sumv of empty list is zerov *)
+     rewrite nseq0_le // sumv_nil //.
+
+    (* Inductive case: n >= 0 *)
+    move=> ge0_n1.
+    rewrite nseqS // sumv_cons. rewrite IH //.
+    have addv_zero_identity: addv zerov zerov = zerov.
+    rewrite /addv /zerov.
+    (* Prove equality by showing each element is equal *)
+    apply (eq_from_nth zero).
+  - rewrite !size_map !size_zip !size_nseq. smt().
+  - move=> i hi.
+    rewrite size_map size_zip !size_nseq in hi.
+    have hi_simplified: 0 <= i < q + 1. smt(). rewrite (nth_map (zero, zero)) //.
+    rewrite size_zip !size_nseq. smt().
+    (* Each element of zip is (zero, zero), and zero + zero = zero *)
+    rewrite nth_zip //.  rewrite /=.
+    rewrite !nth_nseq_if. simplify. smt(@GP @ZModE @G).
+    (* Apply the zero identity to complete the proof *)
+    rewrite addv_zero_identity. smt().
+qed.
+\end{lstlisting}
+
+\section{Sumv of Singleton Zero Vectors Proofs}
+\label{sec:sumv-singleton-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Sumv of Singleton Zero Vectors, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Sum of n singleton zero vectors equals one singleton zero vector
+    This lemma shows that summing any positive number of singleton zero vectors
+    [nseq 1 zero] results in a single singleton zero vector. This is important
+    for handling uniform-sized vector operations in the reduction. **)
+lemma sumv_nseq_zero_singleton (n : int) :
+     1 <= n =>
+     sumv (nseq n (nseq 1 zero)) = nseq 1 zero.
+proof.
+  move=> ge1_n.
+  (* Induction on n *)
+  elim/natind: n ge1_n => [m le0_m|m ge0_m IH] ge1_n.
+  - (* Base case: m <= 0 *)
+    (* Contradiction: we have 1 <= n and n = m, but m <= 0 *)   
+    smt().
+    
+  - (* Inductive case: m >= 0 *)
+  case: (m = 0) => [m_eq_0|m_neq_0].
+
+  + (* Case m = 0, so n = 1 *)
+  rewrite m_eq_0. rewrite nseqS. smt().  rewrite nseq0. rewrite sumv_cons sumv_nil. rewrite /addv.
+  rewrite /zerov.  have : (zip (nseq 1 zero) (nseq (q + 1) zero)) =   (zip (nseq 1 zero) (nseq (1) zero)).
+  rewrite nseqS. smt(gt0_q).  rewrite nseq1.   rewrite zip_cons. rewrite zip_nil_l. smt().
+
+  move =>H. rewrite H. apply (eq_from_nth zero). rewrite size_map size_zip !size_nseq.
+
+  smt(). move=> i hi.
+  rewrite size_map size_zip !size_nseq in hi.
+  (* hi: 0 <= i < 1, i = 0 *)
+  have i_eq_0: i = 0 by smt().
+  rewrite i_eq_0.  rewrite (nth_map (zero, zero)) //.
+  + (* prove index valid *)
+  rewrite size_zip !size_nseq. smt(). rewrite !nth_zip //.
+  rewrite /= !nth_nseq_if /=. 
+  smt(@ZModE). have ge1_m: 1 <= m by smt(). rewrite nseqS //.
+
+
+
+  rewrite sumv_cons. rewrite IH. smt(). rewrite /addv.
+  apply (eq_from_nth zero).
+  rewrite !size_map !size_zip !size_nseq.
+  smt().
+  move=> i hi.
+  rewrite size_map size_zip !size_nseq in hi.
+  have i_eq_0: i = 0 by smt().
+  rewrite i_eq_0.
+  rewrite (nth_map (zero, zero)) //.
+  + rewrite size_zip !size_nseq. smt().
+  
+  rewrite nth_zip //. rewrite /= !nth_nseq_if /=.
+  smt(@ZModE).
+qed.
+\end{lstlisting}
+
+\section{Zip Concatenation Distributivity Proofs}
+\label{sec:zip-cat-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Zip Concatenation Distributivity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+lemma zip_cat_distributive (a1 a2 : 'a list) (b1 b2 : 'b list) :
+  size a1 = size b1 =>
+  zip (a1 ++ a2) (b1 ++ b2) = zip a1 b1 ++ zip a2 b2.
+proof.
+  move=> size_eq.
+  apply (eq_from_nth witness).
+  
+  - (* size equal *)
+  rewrite size_zip size_cat.  smt(@G @GP @List).
+  - (* equal each element *)
+    move=> i hi.
+    rewrite size_zip size_cat in hi.
+    
+    (* dicuss the locate of i *)
+    case: (i < size a1) => [i_lt_a1|i_ge_a1]. rewrite nth_cat.
+  - smt(@List). smt(@List).
+
+qed.
+\end{lstlisting}
+
+\section{Product Concatenation Proofs}
+\label{sec:prod-cat-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Product Concatenation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+lemma prod_cat (xs ys : group list) :
+  prod (xs ++ ys) = prod xs * prod ys.
+proof.
+  elim: xs => [|x xs IH].
+  - (* Base case: xs = [] *)
+    rewrite cat0s.
+    (* prod ([] ++ ys) = prod ys *)
+    (* prod [] * prod ys = 1 * prod ys = prod ys *)
+    rewrite prod_nil.
+    smt(@G @GP).
+  - (* Inductive case: xs = x :: xs *)
+    rewrite cat_cons.
+    (* prod ((x :: xs) ++ ys) = prod (x :: (xs ++ ys)) *)
+    rewrite prod_cons.
+    (* = x * prod (xs ++ ys) *)
+    rewrite IH.
+    (* = x * (prod xs * prod ys) *)
+    rewrite prod_cons.
+    (* prod (x :: xs) * prod ys = (x * prod xs) * prod ys *)
+    algebra. 
+qed.
+\end{lstlisting}
+
+\section{prodEx Split with Last Zero Proofs}
+\label{sec:prodex-split-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of prodEx Split with Last Zero, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Product split with last zero exponent
+    This lemma shows that when the last exponent in a list is zero, the product
+    can be computed by ignoring the last base-exponent pair. This is crucial for
+    oracle simulation where we need to handle cases with trailing zero exponents.
+    
+    Intuitively: prodEx([g1, g2, ..., gn], [a1, a2, ..., an-1, 0]) 
+                = prodEx([g1, g2, ..., gn-1], [a1, a2, ..., an-1])
+    
+    This property allows the reduction to efficiently handle representations
+    that have zero coefficients in the last position. **)
+lemma prodEx_split_last_zero (bases : group list) (exps : ZModE.exp list) :
+  size bases = size exps =>
+  0 <size exps  =>
+  nth witness exps (size exps - 1) = zero =>
+  prodEx bases exps = 
+  prodEx (take (size bases - 1) bases) (take (size exps - 1) exps).
+proof.
+  move=> size_eq size_gt0 last_zero.
+  
+  (* split exps into prefix and last element*)
+  have exps_split: exps = take (size exps - 1) exps ++ [zero].
+  rewrite -(cat_take_drop (size exps - 1)).
+  have drop_last: drop (size exps - 1) exps = [nth witness exps (size exps - 1)]. smt( @List). smt(@List). 
+
+  
+  (* split bases into prefix and last element *)
+  have bases_split: bases = take (size bases - 1) bases ++ [nth witness bases (size bases - 1)].
+  rewrite -(cat_take_drop (size bases - 1)).
+  have drop_last_base: drop (size bases - 1) bases = [nth witness bases (size bases - 1)]. smt(@List). smt(@List).
+  have tran : prodEx bases exps = prodEx (take (size bases - 1) bases ++
+             [nth witness bases (size bases - 1)]) (take (size exps - 1) exps ++ [zero]). smt(). rewrite tran.
+  rewrite /prodEx /ex. rewrite -bases_split.
+            (* split zip and map *)
+  have zip_split: zip bases (take (size exps - 1) exps ++ [zero]) = 
+               zip (take (size bases - 1) bases) (take (size exps - 1) exps)
+               ++ zip (drop (size bases - 1) bases) [zero].
+           
+  rewrite -zip_cat_distributive. rewrite !size_take.
+
+  smt(). smt(). simplify. smt(). smt(@List). rewrite zip_split.  rewrite map_cat. rewrite prod_cat.
+  have : prod (map (fun (i : group * GP.exp) => i.`1 ^ i.`2)
+              (zip (drop (size bases - 1) bases) [zero])) = e.
+  have drop_single: drop (size bases - 1) bases = [nth witness bases (size bases - 1)].
+  smt(@List). rewrite drop_single.
+  simplify. search exp.
+
+  have exp_zero: (nth witness bases (size bases - 1)) ^ zero = e. smt(@G @GP).
+  rewrite exp_zero. smt(@G @GP). smt(@G @GP).
+
+qed.
+\end{lstlisting}
+
+\section{Behead-Drop Equivalence Proofs}
+\label{sec:behead-drop-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Behead-Drop Equivalence, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* my version of relation between behead and drop*)
+lemma my_behead_drop (base : group list) : behead base = drop 1 base.
+    case: base => [|x xs].
+  - (* base = [] *)
+    rewrite behead_nil -drop0.
+    by [].
+  - (* base = x :: xs *)
+    rewrite behead_cons drop_cons. simplify.
+    smt(@G @GP @List).
+qed.
+\end{lstlisting}
+
+\section{Addv Nth Distribution Proofs}
+\label{sec:addv-nth-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Addv Nth Distribution, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* distributive of nth and addv*)
+lemma addv_nth (a b : ZModE.exp list) (pos : int) :
+  size a = size b =>
+  0 <= pos < size a =>
+  nth witness (addv a b) pos = nth witness a pos + nth witness b pos.
+proof.
+  move=> size_eq pos_valid.
+  rewrite /addv. rewrite(nth_map witness witness). smt(@List). smt( @List).
+qed.
+\end{lstlisting}
+
+
+
+
+
+
+
