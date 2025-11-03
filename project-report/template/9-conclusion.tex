@@ -1,0 +1,99 @@
+\chapter{Conclusion and Future work}\label{chap:conclusion}
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This thesis presents a complete machine-checked formalization of the bilateral reduction between IND-CCA1 security of ElGamal-based KEM and the q-DDH assumption in the Algebraic Group Model, mechanizing the theoretical reduction established by Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018}. We have translated the high-level cryptographic arguments from their paper proof A.3 into over 2000 lines of verified EasyCrypt code, making explicit all reasoning steps that were left implicit in the original paper.
+
+When it comes to the lessons I learned, the first is infrastructure development is crucial, A significant portion of our effort went into developing helper lemmas and infrastructure rather than directly proving the main theorem. 
+Lemmas like \texttt{prodEx\_split\_last\_zero}, \texttt{drop\_sumv}, and \texttt{sumv\_cons} were not initially available in the easycrypt but proved essential for the main proof. This teach me the significance of the infrastructure developing. In addition, it is important to make iterative proof development, it is frequent to observe initial attempts often revealed missing lemmas or inappropriate proof strategies required us to backtracking, which is an important formalization strategy within EasyCrypt
+
+\subsection{Scope and Limitations}
+
+\paragraph{What we contribute:}
+\begin{itemize}
+\item A complete mechanization of the bilateral reduction from~\cite{fuchsbauer2018}
+\item Machine-checked correctness guarantees for both reduction directions
+\item A complete framework consists of useful algebraic reasoning lemmas
+\item Give method to future AGM formalization
+\end{itemize}
+
+\paragraph{What we do not contribute:}
+\begin{itemize}
+\item Novel theoretical results in cryptography (the reduction is from~\cite{fuchsbauer2018})
+\item A general framework for all AGM proofs (our infrastructure is tailored to a specific reduction)
+\item Performance and efficiency improvements to EasyCrypt
+\end{itemize}
+
+\subsection{Challenges and Effort in Mechanizing AGM-Based Proofs}
+\label{sec:agm-mechanization-effort}
+
+While the bilateral reduction in Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018} 
+spans approximately two pages in their appendix, its formalization in EasyCrypt 
+required over 2,000 lines of verified code and several months of effort.
+This comparison shows the substantial gap between paper proofs and 
+mechanical verification under the Algebraic Group Model (AGM).
+
+To the best of our knowledge, our work represents the first attempt to formal verify AGM-based security arguments so that it almost provide no specialized support for our work. As a result, a majority of the development effort was tried to building the neccessary framework for our proof, such as  over thirty lemmas and several custom operators 
+(\texttt{prodEx}, \texttt{sumv}, \texttt{scalev}, \texttt{shift\_trunc}) to 
+express and manipulate algebraic relationships between exponents and group 
+elements. In particular, the straightforward arguments in original paper proof like ``by algebraic manipulation'' or ``using the adversary's representation'' required divided into various intermediate lemmas to machine-checked prove.
+
+For my personal experience, the entire developing process was both conceptually challenging and technically hard. I need to master EasyCrypt's language and tactical system and designing a algebraic reasoning framework to support our bilateral reduction at the same time. During my developing process, I need to first understand the AGM concepts and find a efficient and accurate to encode it within EasyCrypt, then try to discover the missing lemmas necessary to make the current proof status machine-checkable, and repeatedly updating the foundational framework as the proof developed. The challenges not only highlights the difficulties of formally verify the AGM-related theorem within EasyCrypt, and also teach me the significant manual engineering required to build the foundational infrastructure for a new formal field. Nevertheless, we can say our formal verification is worth and justify our effort, that our work not only confirms correctness of the original paper proof but also provides a reusable framework for future researchers.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Future Directions}
+\label{sec:future}
+
+\paragraph{Lemma Library Refactoring}
+Our linear algebra lemmas are currently embedded within the main proof file. 
+A natural next step would be to refactor these into a  well-documented 
+module that could be imported by other AGM formalizations and we can make pull request to contribute to the EasyCrypt library.
+
+\paragraph{Additional Reductions from~\cite{fuchsbauer2018}}
+
+The paper by Fuchsbauer, Kiltz, and Loss contains several other AGM-based 
+results that could potentially use similar formalization efforts. For instance, their proof that the algebraic Computational Diffie--Hellman (aCDH) assumption is equivalent to the standard CDH assumption might be possible to formalize in short term using the similar framework of our work. Other AGM-based results, such as the algebraic Strong Diffie--Hellman (aSH) assumption or algebraic LRSW assumptions, could be formalized using similar techniques. However, each new result might lead unique challenges, and we should 
+not underestimate the effort required.
+
+
+
+
+\paragraph{High-Assurance Applications and Future Directions.}
+Modern cryptographic deployments in environments that security failures are unacceptable motivate extending 
+formal verification to more complex AGM-based constructions. For instance, the zero-knowledge proof 
+systems like PLONK~\cite{plonk}, whose security analysis relies on the AGM, is a good instance of this need: PLONK has been deployed in production blockchain systems that process large quantity of dollars in financial transactions. 
+For this kind of implementations, machine-checked security proofs provide 
+particularly strong assurance.
+
+While PLONK introduces substantial complexity beyond our ElGamal formalization,
+but our work shows that although theAGM mechanization is demanding, it is achievable. The 
+framework we developed might be useful for future formalization efforts for these advanced constructions, and has potential to extend it into a broader cryptographic systems protecting substantial real-world value.
+
+
+
+
+
+
+\paragraph{Hybrid Model Explorations}
+
+Recent work explores computational models that combine algebraic assumptions 
+with post-quantum hardness (e.g., Module-LWE~\cite{nguyen2022} or isogeny-based 
+systems~\cite{de2017}). Extending our framework to formalise hybrid arguments combining group-theoretic and lattice-based or isogeny-based reasoning presents a substantial challenge.

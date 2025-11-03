@@ -1,0 +1,1348 @@
+
+\chapter{Evaluation : Formalizing the Bilateral Reduction}
+\label{sec:bilateral-reduction}
+
+This chapter shows the core part of our formalization and verification of our bilateral equivalence between IND-CCA1 security of ElGamal and the q-DDH assumption from the paper~\cite{fuchsbauer2018}. I will indicate both directions of the reduction with complete EasyCrypt implementations and proofs first.
+
+
+\section{Overview of bidirectional reduction}
+The background explanation is in the section\ref{sec:bilateral-equiv},
+Our core formalization of two reductions that bridge computational equivalence between:
+
+\subsection{Forward Reduction: ${\text{A\_from\_INDCCA1}}$.} This reduction will convert all IND-CCA1 adversary $B$ against ElGamal into a q-DDH distinguisher,which works as follows:
+\begin{enumerate}
+\item \textbf{Challenge Reception:} It will first receiving a q-DDH challenge $(g^x, g^{x^2}, \ldots, g^{x^q}, g^r, T)$, then set the public key as $pk = g^x$.
+\item \textbf{Oracle Simulation:} Then it leverage a limited decryption oracle that only processes queries $(C, z)$ where  adversary provides an explicit linear representation $z$ such that $C = \text{prodEx}(l, z)$, while $l = [g, g^x, \text{previous\_results}]$ is the list of group elements already known.
+\item \textbf{Challenge Programming:} Finally the adversary request the encryption challenge, which sets $C^* = g^r$ and $K^* = T$, giving the q-DDH challenge directly into the IND-CCA1 game.
+\item \textbf{Decision Extraction:} The reduction outputs the adversary's guess as its q-DDH decision.
+\end{enumerate}
+
+\subsection{Backward Reduction: ${\text{B\_from\_qDDH}}$.} This reduction converts any q-DDH distinguisher $A$ into an IND-CCA1 adversary:
+\begin{enumerate}
+\item \textbf{Challenge Embedding:} The reduction integrate the received IND-CCA1 challenge into a q-DDH problem by generating the tuple $(g^x, g^{x^2}, \ldots, g^{x^q}, C^*, K^*)$ where $x$ is the secret key and $(K^*, C^*)$ is the challenge key-ciphertext pair.
+\item \textbf{Game Simulation:} Then it will simulates the q-DDH game for the attacker by the same oracle discipline as the forward reduction.
+\item \textbf{Advantage Preservation:} The distinguisher's decision is directly translated into an IND-CCA1 guess.
+\end{enumerate}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Forward Reduction: IND-CCA1 to q-DDH}
+\label{sec:forward-reduction4}
+
+The forward reduction constructs a q-DDH adversary \texttt{A\_from\_INDCCA1} that uses any IND-CCA1 adversary as a subroutine. This reduction highlights that if ElGamal's IND-CCA1 security can be broken, then the q-DDH assumption can also be broken.
+
+\subsection{Module Structure and State Variables}
+
+\begin{lstlisting}[style=easycrypt, caption=A\_from\_INDCCA1 Module Structure \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+module (A_from_INDCCA1 (A : Adv_INDCCA1) : A_qDDH) = {
+  
+  (* State variables for the reduction *)
+  var gxs : group list        (* Powers g^x, g^{x^2}, ..., g^{x^q} *)
+  var l : group list          (* List of group elements (oracle state) *)
+  var reps : exp list list    (* Linear representations of l in basis (g::gxs) *)
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1261-L1266}}
+
+
+The module takes an IND-CCA1 adversary \texttt{A} as parameter and implements the q-DDH adversary interface \texttt{A\_qDDH};
+
+\texttt{gxs} stores the powers $[g^x, g^{x^2}, \ldots, g^{x^q}]$ extracted from the q-DDH challenge. 
+
+\texttt{l} maintains the list of group elements that the adversary has "seen" through oracle queries, similar to the oracle state in the original IND-CCA1 game;
+
+\texttt{reps} stores the corresponding linear representations of elements in \texttt{l} with respect to the basis $(g, g^x, g^{x^2}, \ldots, g^{x^q})$. This enables algebraic manipulation without knowing the discrete logarithm.
+
+
+\subsection{Internal Oracle Simulation}
+
+The core part is the internal oracle \texttt{O\_Internal} that simulates the IND-CCA1 decryption oracle using only the q-DDH challenge, without access to the actual secret key.
+
+\begin{lstlisting}[style=easycrypt, caption=Internal Oracle Implementation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Internal oracle that simulates CCA1 oracle using q-DDH challenge *)
+  module O_Internal : Oracles_CCA1i = {
+    var sk : sk_t
+    var qs : (ctxt_t * key_t option) list
+    var challenge_c : ctxt_t 
+
+    proc init(sk_init : sk_t) = {
+    sk <- sk_init;
+       qs <- [];
+      
+      l <- [];
+    }
+
+    (* Core oracle: simulate decryption without knowing secret key *)
+    proc dec(c : ctxt_t, z : exp list) : key_t option = {
+      var p : key_t option;
+      var rep_c, rep_p;
+      var invalid_query : bool;
+
+      (* Validity check: query limit and representation consistency *)
+      invalid_query <- (q < size qs + 2  \/ c <> prodEx l z);
+
+      (* Compute representation of ciphertext in basis (g::gxs) *)
+      rep_c <- sumv (map (fun x : exp list * exp => scalev x.`1 x.`2)
+         (zip reps z)); 
+           (* Prepend zero for g^0 term *)
+       rep_p <- ( shift_trunc rep_c); 
+      
+      (* Compute corresponding group element *)
+      p <- Some (prodEx (g :: gxs) (rep_p));
+      
+      (* Update state if query was valid *)
+           if (!invalid_query) {
+        reps <- rep_p :: reps ;
+        l <-   oget p :: l ;           (* Add to group element list *)
+        qs <- (c, p) :: qs;      (* Record query *)
+             (* Store representation *)
+      }
+     
+      (* Return result *)
+      return (if invalid_query then witness else p);
+    }
+  }
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1268-L1310}}
+
+
+
+Module declaration implementing the \texttt{Oracles\_CCA1i} interface with state variables for secret key, query history, and challenge ciphertext, and an initialization procedure that sets up the oracle state; note that when \texttt{sk} is stored, it's not actually used in the simulation, the oracle operates entirely using algebraic manipulation, and the key decryption procedure that must simulate decryption without knowing the secret key implement by introducing local variables for the computation: \texttt{p} for the result, \texttt{rep\_c} and \texttt{rep\_p} for algebraic representations, and \texttt{invalid\_query} for validity checking, then it perform a validity check combining two conditions is performed, namely (i) the query limit \texttt{q < size qs + 2} that ensures unable to exceed the allowed number of queries and (ii) the representation consistency \texttt{c <> prodEx l z} that verifies the \texttt{z} correctly represents ciphertext \texttt{c}. 
+Then the algebraic magic happen: we compute the representation of ciphertext \texttt{c} in the basis \((g, g^x, \ldots, g^{x^q})\) by taking each previously seen element's representation from \texttt{reps}, scaling each representation by the corresponding coefficient in \texttt{z}, and summing all scaled representations using \texttt{sumv}; next, the \texttt{shift\_trunc} operation prepends a zero and truncates to maintain proper dimensionality, which accounts for the fact that the decryption result \(c^x\) has a different representation structure, and then compute the actual group element corresponding to the representation using \texttt{prodEx} with the full basis \((g, g^x, \ldots, g^{x^q})\). 
+
+Finally, when it comes to state update for valid queries, we add the computed representation to \texttt{reps}, add the computed group element to \texttt{l}, and record the query--response pair in \texttt{qs}, and we return the computed result for valid queries, or a witness value for invalid queries.
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Main Reduction Procedure}
+
+\begin{lstlisting}[style=easycrypt, caption=Main Reduction Procedure \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Main reduction procedure *)
+  proc guess(gtuple : group list) : bool = {
+    var c : ctxt_t; 
+    var k : key_t;
+    var b' : bool;
+    var x_exp : exp;
+
+    (* Parse q-DDH challenge: gtuple = [g^x, g^{x^2}, ..., g^{x^q}, g^r, T] *)
+    gxs <- take q gtuple;             (* Extract [g^x, ..., g^{x^q}] *)
+    c <- nth witness gtuple q;        (* Extract g^r (ciphertext) *)  
+    k <- nth witness gtuple (q + 1);  (* Extract T (challenge key) *)
+    
+    (* Initialize internal oracle *)
+    O_Internal.init(witness);
+    
+      (* Set initial state: adversary has seen g and g^x *)
+    l <-   head witness gxs :: g::  [];
+    (* Corresponding representations in basis (g::gxs) *)
+    reps <- (* g = g^1 * (g^x)^0 * ... *)
+      (zero :: one :: nseq (q-1) zero) ::[(one :: nseq q zero)];  (* g^x = g^0 * (g^x)^1 * ... *)
+
+   
+    
+    (* Run IND-CCA1 adversary *)
+    A(O_Internal).scout(head witness gxs);      (* Scout phase *)
+    b' <@ A(O_Internal).distinguish(k, c);     (* Challenge phase *)
+    
+    return b';
+  }
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1313-L1340}}
+
+
+From the first 6 lines, it procedure signature and local variable declarations. The procedure receives a q-DDH challenge tuple and must return a boolean guess.
+
+After that(line 9), it extract the first $q$ elements $[g^x, g^{x^2}, \ldots, g^{x^q}]$ from the challenge tuple using \texttt{take q}.
+
+And it will extract the $(q+1)$-th element, which represents $g^r$ (the ElGamal ciphertext component); extract the $(q+2)$-th element, which is either $g^{xr}$ (real) or $g^{xr+z}$ (random) depending on the q-DDH challenge bit.
+
+In the next step it will initialize the internal oracle with a witness value (since we don't have a real secret key) and set up the initial state where the adversary has seen $g^x$ (the public key) and $g$ (the generator).
+
+Additionally it will also initiate the representation vectors:
+  \begin{itemize}
+  \item $g$ is represented as $(0, 1, 0, \ldots, 0)$ in basis $(g, g^x, \ldots, g^{x^q})$
+  \item $g^x$ is represented as $(1, 0, 0, \ldots, 0)$ in the same basis
+  \end{itemize}
+
+After that the reduction will run the adversary's scout phase, giving it access to the public key $g^x$ and the simulated oracle and run the adversary's distinguish phase with the challenge key $k$ and ciphertext $c$.
+
+Finally, it return the adversary's guess, which becomes our q-DDH distinguisher's output.
+
+
+\section{Backward Reduction: q-DDH to IND-CCA1}
+\label{sec:backward-reduction4}
+
+The backward reduction constructs an IND-CCA1 adversary \texttt{B\_from\_qDDH} that uses any q-DDH adversary as a subroutine. This reduction demonstrates that if the q-DDH assumption can be broken, then ElGamal's IND-CCA1 security can also be broken.
+
+\subsection{Module Structure and Scout Phase}
+
+\begin{lstlisting}[style=easycrypt, caption=B\_from\_qDDH Module Structure \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(** Alternative adversary construction **)
+module (B_from_qDDH (A  : A_qDDH) : Adv_INDCCA1)(O : Oracles_CCA1i) = {
+  var gxs : group list
+
+  (* Scout phase: build up powers of x using decryption oracle *)
+  proc scout(pk:pk_t) : unit ={
+     var i   : int;
+     var p   : key_t option;
+     gxs <- [pk];  
+     i <- 1 ;
+
+     while (i <= q-1) {
+     
+     p <@ O.dec(last witness gxs, ( one :: nseq i zero));
+     
+     gxs <- gxs ++ [oget p];
+     i <- i + 1;
+   }}
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1345-L1361}}
+
+
+Module declaration taking a q-DDH adversary \texttt{A} and implementing the IND-CCA1 adversary interface with oracle access. Then we state variable \texttt{gxs} to store the powers of $x$ that we'll construct through oracle queries. It will then scout phase procedure where we can make decryption queries to build up our knowledge. The Local variables are \texttt{i} for loop counter and \texttt{p} for oracle responses.
+
+Before the loop start, we first initialize \texttt{gxs} with the public key $pk = g^x$. Then we start loop counter at 1 (we already have $g^x$, now we need $g^{x^2}, g^{x^3}, \ldots$) and loop to construct powers $g^{x^2}, g^{x^3}, \ldots, g^{x^q}$.
+
+We can gain insight from quering the oracle with ciphertext \texttt{last witness gxs} (the highest power we have so far) and representation vector \texttt{(one :: nseq i zero)}:
+  \begin{itemize}
+  \item This represents the query "decrypt $g^{x^i}$ with representation $(1, 0, 0, \ldots, 0)$"
+  \item The oracle will return $g^{x^{i+1}}$ (since decryption multiplies by $x$)
+  \end{itemize}
+
+Finally we append the new power to our list: \texttt{gxs} now contains $[g^x, g^{x^2}, \ldots, g^{x^{i+1}}]$ and increase counter to build the next power.
+
+
+\subsection{Distinguish Phase}
+
+\begin{lstlisting}[style=easycrypt, caption=B\_from\_qDDH Distinguish Phase \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+  (* Convert to q-DDH challenge *)
+   proc distinguish(k: key_t, c: ctxt_t) : bool = {
+      var b'  : bool;
+      
+      (* Pass challenge to q-DDH adversary *)
+      b' <@ A.guess( gxs ++ [c] ++ [k]);
+      return b';
+   }
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1366-L1372}}
+
+
+\subsubsection{Detailed Analysis:}
+Firstly, the procedure is expected to receiving the challenge key \texttt{k} and ciphertext \texttt{c}. And at the initial stage, it will initiate a local variable \texttt{b'} for the adversary's response.
+
+After that, which is the crucial step of this phase: construct a q-DDH challenge tuple by concatenating:
+  \begin{itemize}
+  \item \texttt{gxs}: The powers $[g^x, g^{x^2}, \ldots, g^{x^q}]$ we built in the scout phase
+  \item \texttt{[c]}: The challenge ciphertext $g^r$
+  \item \texttt{[k]}: The challenge key, which is either $g^{xr}$ (real) or random
+  \end{itemize}
+Finally, it will return the q-DDH adversary's guess as the IND-CCA1 distinguisher's result.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Main Theorem: Bilateral Equivalence}
+\label{sec:main-theorem4}
+
+Our main result establishes a tight bilateral equivalence between the two security notions:
+
+\begin{theorem}[Bilateral Equivalence]
+\label{thm:bilateral-equivalence}
+Under the algebraic group model, for any cyclic group $\mathcal{G}$ of prime order $p$:
+
+\subsection{Forward Direction.} For any IND-CCA1 adversary $\mathcal{B}$ making at most $q$ decryption queries, there exists a q-DDH adversary $\mathcal{\text{A\_from\_INDCCA1}}(\mathcal{B})$ such that:
+\[
+\Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, \mathcal{B}).\text{main}() : \text{res}] = \Pr[\text{QDDH}({\text{A\_from\_INDCCA1}}(\mathcal{B})).\text{main}() : \text{res}]
+\]
+
+\subsection{Backward Direction.} For any q-DDH adversary $\mathcal{A}$, there exists an IND-CCA1 adversary ${\text{B\_from\_qDDH}}(\mathcal{A})$ such that:
+\[
+\Pr[\text{QDDH}(\mathcal{A}).\text{main}() : \text{res}] = \Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, {\text{B\_from\_qDDH}}(\mathcal{A})).\text{main}() : \text{res}]
+\]
+
+Both reductions are tight with no security loss.
+\end{theorem}
+
+
+And the main theorem are formalized as the following EasyCrypt lemmas:
+
+\begin{lstlisting}[style=easycrypt, caption=Main Bilateral Equivalence Lemmas \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Forward direction *)
+lemma qDDH_Implies_INDCCA1_ElGamal &m :
+  Pr[IND_CCA1_P(ElGamal,B).main() @ &m : res] = 
+  Pr[QDDH(A_from_INDCCA1(B)).main() @ &m : res].
+
+(* Backward direction *)
+lemma INDCCA1_ElGamal_Implies_qDDH &m :
+  Pr[QDDH(A).main() @ &m : res] =
+  Pr[IND_CCA1_P(ElGamal,B_from_qDDH(A)).main() @ &m : res].
+\end{lstlisting}
+
+This completes our formalization of the bilateral equivalence between IND-CCA1 security of ElGamal and the q-DDH assumption, providing the first EasyCrypt machine-checked proof of this fundamental result.
+
+
+
+\noindent \textit{Complete EasyCrypt Implementation:} The full formal verification code, including all lemmas and proofs, is available at: \url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1378} and
+\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1571}
+
+
+\section{Overall Analysis of INDCCA1\_ElGamal\_Implies\_qDDH Code}
+
+This part indicates the core of the proof for the reduction from IND-CCA1 ElGamal to q-DDH. The entire proof uses the \textbf{byequiv} strategy, constructing equivalence between two games to complete the reduction proof.
+
+\subsection{Key components of Proof Structure}
+
+\begin{enumerate}
+\item \textbf{Code Alignment}: Using \texttt{swap} operations to reorder instructions in both games, ensuring the related random sampling and computation steps align accurately.
+
+\item \textbf{Loop Invariant Maintenance}: Establishing a loop-for-while invariant that ensures at each iteration, we initiate counter \texttt{i} remains within valid range and the group element list \texttt{gxs} is introduced to correctly corresponds to the exponent sequence. In addition, oracle's base list \texttt{l} is maintained and ensuring the query count limitations are satisfied.
+
+
+\item \textbf{List Operation Equivalence}: Proving that \texttt{map}, \texttt{range}, \texttt{rev}, and other list operations produce same results in both games, particularly building equivalence between the last element of the lists and their \texttt{prodEx} representations.
+
+\item \textbf{Random Variable Transformation}: Applying the crucial random variable transformation \texttt{rnd (fun z => g \textasciicircum{} (z + sk0\{2\} * y\{2\}))(fun k' => loge k' - sk0\{2\} * y\{2\})}, which is a bijective transformation preserving distributional consistency.
+\end{enumerate}
+
+
+
+
+
+
+
+
+\section{Overall Analysis of qDDH\_Implies\_INDCCA1\_ElGamal Code}
+
+This part represents the reverse direction of the reduction, indicating that q-DDH hardness can imply to IND-CCA1 security of ElGamal. The proof leverage the \textbf{byequiv} strategy to establish game equivalence through sophisticated algebraic manipulations and oracle simulations.
+
+\subsection{Key components of Proof Structure}
+
+\begin{enumerate}
+\item \textbf{Code Alignment and Setup}: 
+   \begin{itemize}
+   \item Uses \texttt{swap} operations to align random variable sampling between games
+   \item Establishes the foundational structure with \texttt{proc. inline*. swap\{1\} 11 -9. swap\{1\} 14 -10}
+   \item Brings random coins to the front for proper synchronization
+   \end{itemize}
+
+\item \textbf{ Oracle Invariant Maintenance}: 
+   The proof first introduce an  8-condition invariant for oracle simulation:
+   \begin{itemize}
+   \item \textbf{Query List Consistency}: \texttt{IND\_CCA1\_P.OS.l\{1\} = A\_from\_INDCCA1.l\{2\}}
+   \item \textbf{Query Count Synchronization}: Between different oracle implementations
+   \item \textbf{Representation-Ciphertext Mapping}: \texttt{A\_from\_INDCCA1.l\{2\} = map (prodEx (g :: A\_from\_INDCCA1.gxs\{2\})) reps}
+   \item \textbf{Base Elements Construction}: From secret key powers
+   \item \textbf{Uniform Representation Size}: All vectors have size \texttt{q + 1}
+   \item \textbf{Trailing Zeros Constraint}: For valid algebraic representations
+   \item \textbf{Representation Count Relationship}: Links query count to representation count
+   \end{itemize}
+
+\item \textbf{Algebraic Transformations}:
+   \begin{itemize}
+   \item \textbf{prodEx Flattening}: Transform nested \texttt{prodEx} operations leveraging the lemma \texttt{ex\_map\_prodEx}
+   \item \textbf{Distributivity Applications}: Uses \texttt{prodEx\_addv\_distributive} and \texttt{prodExConsGeneral}
+   \item \textbf{Zero Suffix Proofs}: Proving that representation vectors have trailing zeros through \texttt{drop\_scalev} and \texttt{scalev\_nseq\_zero}
+   \end{itemize}
+
+\item \textbf{Advanced List Manipulation Techniques}:
+   \begin{itemize}
+   \item \textbf{Range Splitting}: Decomposes ranges, for instance, \texttt{range 1 (q + 2) = range 1 (q + 1) ++ [q + 1]}
+   \item \textbf{Take/Drop Operations}: Uses \texttt{take\_cat}, \texttt{drop\_sumv}, and \texttt{nth\_drop} for precise list manipulation
+   \item \textbf{Zip and Map Compositions}: Complex operations on paired lists
+   \end{itemize}
+
+\item \textbf{Random Variable Transformation}:
+   \begin{itemize}
+   \item Applies \texttt{rnd (fun k' => loge k'- sk0\{1\} * y\{1\}) (fun z => g \textasciicircum{} (z + sk0\{1\} * y\{1\}))}
+   \item Establishes bijectivity through logarithm-exponentiation inverse pairs
+   \item  Keep uniform distribution over the key space
+   \end{itemize}
+\end{enumerate}
+
+
+
+
+
+\section{Case Study 1: Mechanizing Algebraic Manipulations and Self evaluation }
+As we mentioned before in the section\ref{sec:problemstate}, mastering easycrypt requiring substantial effort beyond reading the reference manual. To illustrate the challenges of using EasyCrypt mechanizing AGM-based proofs, I will present a case study and self experience of a key proof step.
+
+\textit{Note: This section contains detailed implementation steps documenting 
+the learning process. Readers may skip to Section~\ref{sec:mainresult} for 
+the main results.}
+
+\subsection{The Proof Goal}
+At a key point in the formalization of the proof of the reduction to IND-CCA1 from QDDH, we must establish that the decryption oracle simulation produces outputs consistent with the real decryption oracle. This requires proving an algebraic equality involving nested product-of-exponents operations. The goal state in EasyCrypt is:
+
+\begin{lstlisting}[style=easycrypt, caption= key proof goal \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+prodEx (map (prodEx bases) reps) z ^ sk 
+= prodEx bases (shift_trunc (sumv (scalev_map (reps, z))))
+\end{lstlisting}
+
+where:
+\begin{itemize}
+\item \texttt{bases} is the list $[g, g^x, g^{x^2}, \ldots, g^{x^q}]$ derived from the q-DDH challenge
+\item \texttt{reps} is the list of algebraic representations provided by the adversary for previous queries
+\item \texttt{z} is the representation provided for the current query
+\item \texttt{sk} is the secret key, corresponding to $x$ in the q-DDH 
+\end{itemize}
+In a paper proof, we can state: By the algebraic structure of the AGM, the nested prodEx operations can be flattened using distributivity. However, mechanizing this in EasyCrypt requires making explicit all intermediate steps, we specialized the proof structure below.
+\subsection{Proof Structure}
+
+The complete proof of this status needs over 200 lines of EasyCrypt code and can be divided into four major phases:
+
+\paragraph{Phase 1: Key Transformation (Lines 1643--1645).}
+
+The first phase applies a fundamental transformation lemma to convert nested 
+\texttt{prodEx} operations into a single \texttt{prodEx} with combined 
+representations.
+
+\begin{lstlisting}[style=easycrypt, caption= ex\_map\_prodEx \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Apply the fundamental lemma ex_map_prodEx:
+   prodEx(map(prodEx(bases, @$\cdot$@), reps), z) 
+   = prodEx(bases, shift_trunc(sumv(scalev_map(reps, z)))) *)
+rewrite (ex_map_prodEx _ _ (q+1) (size reps)).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1643-L1645}}
+
+This lemma encodes the mathematical principle where encoded in appendix\ref{sec:prodexnew-proofs}: It converts a map of $\texttt{prodEx}$ expressions into a single $\texttt{prodEx}$ 
+over summed representations. Specifically, the fundamental lemma 
+\texttt{ex\_map\_prodEx}, which states that:
+\[
+  \texttt{prodEx}(\texttt{map}(\texttt{prodEx}(bases, \cdot), reps), z)
+  = \texttt{prodEx}(bases, \texttt{shift\_trunc}(\texttt{sumv}(\texttt{scalev\_map}(reps, z)))).
+\]
+The size arguments $(q + 1)$ and $(\texttt{size reps})$ ensure that this transformation is well-defined and valid.
+
+
+
+
+
+
+
+
+\paragraph{Phase 2: Flattening Distributivity (Lines 1628--1664).}
+
+The second phase proves a key distributivity property which is formalized as:
+
+\begin{lstlisting}[style=easycrypt, caption= flatten \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+ have flat :  prodEx (map (prodEx bases) reps) z
+      = prodEx bases (sumv (map (fun (x : ZModE.exp list * ZModE.exp) => scalev x.`1 x.`2) (zip reps z))).
+      have reps_all_size: all (fun rep => size rep = q + 1) reps. exact H1.
+      elim: reps z reps_all_size => [|rep reps IH] [|z_head z_tail] reps_size //=.  
+      rewrite prodEx_nil.  rewrite sumv_nil. 
+      rewrite /zerov. rewrite prodEx_nseq_zero. smt(gt0_q) . smt().
+      rewrite prodEx_nil_l. rewrite sumv_nil.  rewrite /zerov. rewrite prodEx_nseq_zero. smt(gt0_q). smt().
+      rewrite prodEx_nil_r. rewrite sumv_nil.  rewrite /zerov. rewrite prodEx_nseq_zero. smt(gt0_q). smt().
+      rewrite prodExConsGeneral. rewrite sumv_cons. rewrite prodEx_addv_distributive.  rewrite /scalev.
+      rewrite size_map. have size_bases: size bases = q + 1.
+      rewrite /bases size_map size_range. smt(@List @GP gt0_q).
+      have size_rep : size rep = q +1.  smt(@G @GP). smt(). 
+      have sumv_size: size (sumv (map (fun (x : ZModE.exp list * ZModE.exp) => scalev x.`1 x.`2)
+          (zip reps z_tail))) = q + 1.
+      case: (reps = []) => [reps_empty | reps_nonempty].
+       - rewrite reps_empty /=. rewrite zip_nil_l.   rewrite  sumv_nil. rewrite /zerov size_nseq. smt(gt0_q).
+       - apply size_sumv.
+       move=> v /mapP [pair [pair_in ->]].
+       case: pair pair_in => [rep_elem z_elem] /= pair_in_zip.
+       rewrite size_scalev. have: rep_elem \in reps by smt(@List).  smt(@G @GP @List). rewrite sumv_size.
+       have size_bases: size bases = q + 1.
+       rewrite /bases size_map size_range.
+       smt(@List @GP gt0_q). smt().
+       congr. rewrite prodExScale1.
+       trivial. rewrite IH. smt(). trivial. rewrite flat.
+      
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1665-L1689}}
+
+Flatten nested \texttt{prodEx} operations using distributivity.  
+This establishes that \texttt{prodEx} distributes over \texttt{map} and can be flattened:
+\[
+  \texttt{prodEx}(\texttt{map}(\texttt{prodEx}(bases, \cdot), reps), z)
+  = \texttt{prodEx}(bases, \texttt{sumv}(\texttt{scalev\_map}(reps, z))).
+\]
+
+Left side: Apply \texttt{prodEx} to each \texttt{rep} with \texttt{bases}, then combine with \texttt{z}.  
+
+Right side: First combine \texttt{reps} with \texttt{z} using scalar multiplication, sum them, then apply \texttt{prodEx}.  
+
+This transformation is fundamental for the reduction's correctness, it proceeds by induction on the list \texttt{reps}, with extensive 
+case analysis:
+
+\begin{itemize}
+\item \textbf{Base cases} (3 cases): Empty list, singleton list with empty 
+tail, singleton list with empty head
+\item \textbf{Inductive case}: Non-empty list with non-empty tail
+
+For each case, we optionally to achieve this flatten goal and rewrite:
+  \begin{itemize}
+  \item Rewrite using lemmas \texttt{prodExConsGeneral}(lemma\ref{lem:prodex-cons}), \texttt{sumv\_cons}(lemma\ref{lem:sumv-cons-general}), 
+        \texttt{prodEx\_addv\_distributive}(lemma\ref{lem:prodex-addv-distributive})
+  \item Establish size properties using \texttt{size\_sumv}, \texttt{size\_scalev} prove in section\ref{sec:size-preservation-proofs}, 
+        \texttt{size\_map}
+  \item Apply the induction hypothesis with appropriate size constraints
+  \end{itemize}
+\end{itemize}
+
+
+
+\paragraph{Phase 3: Zero Suffix Property .}
+
+This phases is the most complex part of this case study, aims to establishes that the last element of the combined representation vector is zero. This property derives from the restriction that adversaries can only query the decryption oracle before the challenge 
+phase, guarantee the $q+1$-th component (corresponding to the challenge ciphertext) will not appear in any query representation.
+
+\subparagraph{Step 3.1: Goal Statement}
+
+We first state the main goal and introduce the key definition:
+
+\begin{lstlisting}[style=easycrypt, caption=Zero suffix goal statement \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true, escapechar=@]
+(* Main goal: prove the last element of exps is zero *)
+pose exps := (sumv (map (fun (x : ZModE.exp list * ZModE.exp) => scalev x.`1 x.`2)(zip reps z))).
+have drop_last_ele : drop q exps = nseq 1 zero.
+rewrite /exps.
+(* exps is defined as the sum of scaled representations *)
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1695}}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1713-L1714}}
+
+
+
+The strategy to prove this is first showing each individual element in the mapped list has a zero suffix, then showing this property is maintained after summation.
+
+\subparagraph{Step 3.2: Individual Zero Suffixes}
+
+The core lemma proves that each element in the mapped list has a zero in its last position:
+
+\begin{lstlisting}[style=easycrypt, caption=Individual zero suffix property \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true, escapechar=@]
+(* Prove each element has zero suffix *)
+have all_elements_zero_suffix:
+  forall u, u @$\in$@ map (fun (x : exp list * exp) => scalev x.`1 x.`2) (zip reps z)
+    => drop q u = nseq 1 zero.
+move=> u u_in_map.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1716-L1719}}
+
+
+
+
+
+
+From this sub-lemma, we need to show for each element $u$ in the mapped list, we must show \texttt{drop q u = [zero]}. 
+This proceeds through following sub-steps:
+
+\textbf{Step 3.2a: Destruct the element}
+\begin{lstlisting}[style=easycrypt, caption=Destructuring element from zip \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have: exists pair, pair @$\in$@ zip reps z /\ u = scalev pair.`1 pair.`2. 
+  smt(@List).
+case=> [[rep z_elem]] [pair_in_zip u_def].
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1720-L1721}}
+
+This extracts the underlying pair \texttt{(rep, z\_elem)} from the zip, establishing that \texttt{u = scalev rep z\_elem}.
+
+\textbf{Step 3.2b: Apply hypothesis H2}
+Following H2 is derived from the proof goal from EasyCrypt during this stage
+\begin{lstlisting}[style=easycrypt, caption= H2 \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+H2: all(fun (rep : ZModE.exp list) =>
+         drop (size A_from_INDCCA1.reps{2}) rep =
+         nseq (q + 1 - size A_from_INDCCA1.reps{2}) zero) A_from_INDCCA1.reps{2}
+ \end{lstlisting}   
+
+It states that all representations have zero suffixes beyond the query count:
+
+\begin{lstlisting}[style=easycrypt, caption=Applying hypothesis H2 for zero suffix \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have rep_zero_suffix: 
+  drop (size A_from_INDCCA1.reps{2}) rep =
+  nseq (q + 1 - size A_from_INDCCA1.reps{2}) zero.
+move: H2. rewrite allP. move=> H2_expanded. 
+apply H2_expanded. smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1723-L1726}}
+
+
+This establishes that \texttt{rep} has trailing zeros starting from position 
+\texttt{size reps}.
+
+\textbf{Step 3.2c: Correspond query count to position q}
+
+We need to connect \texttt{size reps} to the position $q$:
+
+\begin{lstlisting}[style=easycrypt, caption=Relating query count to position q \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have size_qs_le_q: size O_CCA1_Limited.qs{1} <= q. smt().
+rewrite u_def.
+rewrite drop_scalev. simplify.
+have rep_size: size rep = q + 1. smt(@List).
+have drop_q_rep: drop q rep = [nth witness rep q]. 
+  smt(@List @G @GP gt0_q).
+\end{lstlisting}
+ \footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1727-L1733}}
+
+The key point is \texttt{size qs $\leq$ q}, so the zero suffix starting at \texttt{size reps = size qs + 2} certainly includes position $q$.
+
+\textbf{Step 3.2d: Extract the q-th element is zero}
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have nth_q_zero: nth witness rep q = zero.
+have: nth witness rep q =
+      nth witness (nseq (q + 1 - size reps) zero) 
+                  (q - size reps).
+  smt(@List @G @GP gt0_q).
+smt(@List @G @GP gt0_q).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1734-L1746}}
+
+
+
+
+
+Using the zero-suffix property, it follows that accessing index q of \texttt{rep} returns zero.
+
+\textbf{Step 3.2e: Conclude by scalev}
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite drop_q_rep nth_q_zero.
+have one_zero : [zero] = nseq 1 zero. smt(@G @GP @List). 
+rewrite one_zero.
+rewrite scalev_nseq_zero. trivial.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1747-L1750}}
+
+
+
+
+Since the last element of \texttt{rep} is zero, and scalar multiplication preserves zeros (via \texttt{scalev\_nseq\_zero}), we can prove the last element of \texttt{u = scalev rep z\_elem} is also zero.
+
+Until here, we completes the proof that each individual element has a zero suffix.
+
+\subparagraph{Step 3.3: Universal Quantification}
+
+We now integrate the individual zero suffix property into a universal statement:
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have all_form: all (fun u => drop q u = nseq 1 zero) 
+               (map (scalev ...) (zip reps z)).
+apply/allP => u u_in_map. 
+exact (all_elements_zero_suffix u u_in_map).
+move: all_form.
+
+pose mapped_list := map (scalev ...) (zip reps z).
+move=> all_form.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1760-L1768}}
+
+This step formalizes that \emph{every} element in \texttt{mapped\_list} satisfies the zero suffix property. This is essential 
+for the next step where we try to prove for entire list.
+
+\subparagraph{Step 3.4: Preservation Under Summation}
+
+This step shows that \texttt{sumv} can preserves the zero suffix property.
+
+\textbf{Step 3.4a: Empty list base case (Line 1746).}
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+case (mapped_list = []). 
+move =>map_empty. 
+rewrite map_empty sumv_nil /zerov drop_nseq. 
+smt(). smt().
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1771}}
+
+If the list is empty, \texttt{sumv [] = zerov} and \texttt{drop q zerov} is trivially \texttt{nseq 1 zero}.
+
+\textbf{Step 3.4b: Apply drop\_sumv lemma}
+
+Then, for non-empty lists, we use the distributivity of \texttt{drop} over \texttt{sumv}:
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+move => mapped_nonempty.
+have tran : drop q (sumv mapped_list) = 
+            sumv (map (drop q) mapped_list).
+rewrite drop_sumv.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1772-L1773}}
+
+However, \texttt{drop\_sumv} requires that all elements have the same size which require us to verify this:
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+smt(). rewrite /mapped_list. apply/allP => u u_in_mapped.
+have: exists pair, pair @$\in$@ zip reps z /\ 
+      u = scalev pair.`1 pair.`2. apply/mapP. by [].
+case => pair [pair_in_zip u_eq].
+rewrite u_eq /= size_scalev.
+have pair_first_in_reps: pair.`1 @$\in$@ reps. smt(@List). 
+have: size pair.`1 = q + 1. smt(allP). by []. 
+smt(). smt(@List). rewrite tran. 
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1774-L1783}}
+
+This proves that each \texttt{scalev pair.`1 pair.`2} has size $q+1$ (as \texttt{scalev} preserves size, and each \texttt{pair.`1} has size $q+1$ by hypothesis \texttt{H1}). Where following H1 is derived from the proof goal from EasyCrypt during this stage
+\begin{lstlisting}[style=easycrypt, caption= H1 \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+H1: all (fun (rep : ZModE.exp list) => size rep = q + 1) A_from_INDCCA1.
+      reps{2}
+ \end{lstlisting}   
+
+
+
+
+
+
+
+
+
+\textbf{Step 3.4c: All dropped suffixes are zero}
+
+Then we need to prove that \texttt{map (drop q) mapped\_list} is a list of all zeros:
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have map_all_zero: map (drop q) mapped_list = 
+                   nseq (size mapped_list) (nseq 1 zero).
+apply (eq_from_nth witness).
+rewrite size_map size_nseq.
+case: (0 <= size mapped_list) => [ge0_size|lt0_size]. 
+  smt(@List). + smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1784-L1791}}
+
+We prove equality using \texttt{eq\_from\_nth}: two lists are equal if they have the same size, and same elements at each index.
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+move=> i hi.
+rewrite size_map in hi. rewrite (nth_map witness) //. 
+rewrite nth_nseq_if.
+case: (0 <= i < size mapped_list) => [valid_i|invalid_i].
+have u_in_mapped: nth witness mapped_list i @$\in$@ mapped_list.
+  by apply mem_nth.
+have u_drop_zero: drop q (nth witness mapped_list i) = nseq 1 zero. 
+  smt(@List @GP).
+by rewrite u_drop_zero.
+smt().
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1793-L1801}}
+
+For each valid index $i$, we can the \texttt{all\_form} hypothesis to conclude that \texttt{drop q (nth witness mapped\_list i) = nseq 1 zero}.
+
+
+
+
+
+\textbf{Step 3.4d: Sum of zeros is zero}
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite map_all_zero. 
+have map_ge1: 1 <= size mapped_list by smt(@List).
+rewrite sumv_nseq_zero_singleton. smt(). trivial.
+\end{lstlisting}
+
+
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1801-L1802}}
+
+Finally, we apply \texttt{sumv\_nseq\_zero\_singleton}, which states that the summation of a list of \texttt{[zero]} vectors is \texttt{[zero]}. This finally concludes the proof that \texttt{drop q exps = nseq 1 zero}.
+
+
+
+
+
+
+
+
+
+\paragraph{Phase 4: Final Simplification.}
+
+The final phase uses the zero suffix property from Phase3 to simplify the expression. The state we need to prove becomes as following:
+
+\begin{lstlisting}[style=easycrypt, caption=Code snippet \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+prodEx(map (fun (i : int) => g ^ exp O_CCA1_Limited.sk{1} i) (range 1 (q + 2)))exps =
+prodEx(map (fun (i : int) => g ^ exp O_CCA1_Limited.sk{1} i) (range 0 (q + 1)))(shift_trunc exps)
+\end{lstlisting}
+
+
+
+
+\subparagraph{Step 4.1: Applying Shift-Truncate Simplification}
+
+First, applying the \texttt{prodExShiftTrunce} lemma\ref{lem:prodex-shift-trunc}, which simplifies the shifted representation:
+
+\begin{lstlisting}[style=easycrypt, caption=Applying shift-truncate simplification \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite prodExShiftTrunce. 
+rewrite size_map size_range. smt(gt0_q).
+apply size_exps_analysis. smt().
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1806-L1807}}
+
+
+
+
+
+
+
+The \texttt{prodExShiftTrunce} lemma states that shifting the representation of a vector by one position corresponds to removing the first base element. Mathematically:
+\[
+\texttt{prodEx}([g_0, g_1, \ldots, g_q], \texttt{shift\_trunc}(\text{exps})) = 
+\texttt{prodEx}([g_1, \ldots, g_q], \text{exps})
+\]
+
+
+\subparagraph{Step 4.2: Proving the Last Element is Zero}
+
+Before applying \texttt{prodEx\_split\_last\_zero}, we need a proof that the $q$-th element  of \texttt{exps} is zero:
+
+\begin{lstlisting}[style=easycrypt, caption=Proving the last element is zero \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* Prove drop q exps is same as nth witness exps q *)
+have last_exp_zero: nth witness exps q = zero.
+have: drop q exps = [zero].
+  rewrite drop_last_ele.
+  have nseq_one_zero: nseq 1 zero = [zero]. smt(@List). 
+  smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1811-L1814}}
+
+
+This prove that \texttt{drop q exps = [zero]} using \texttt{drop\_last\_ele} established from Phase 3, which proved \texttt{drop q exps = nseq 1 zero}. Then, we want to extract the specific element by the relationship between \texttt{nth} and \texttt{drop}:
+
+\begin{lstlisting}[style=easycrypt, caption=Extracting nth element from drop \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+move=> drop_eq.
+have: size (drop q exps) = 1. rewrite drop_eq. smt(@List).
+have: nth witness (drop q exps) 0 = zero. rewrite drop_eq. smt(@List).
+have: nth witness exps q = nth witness (drop q exps) 0.
+  rewrite nth_drop. smt(). smt(). smt(). 
+smt().
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1815-L1822}}
+
+Since \texttt{drop q exps} has size 1 where its single element is \texttt{zero}, by \texttt{nth\_drop} lemma: \texttt{nth witness exps q = nth witness (drop q exps) 0};Therefore, \texttt{nth witness exps q = zero}
+
+
+\subparagraph{Step 4.3: Splitting Off the Zero Component}
+
+With \texttt{last\_exp\_zero} established, we can apply the splitting lemma\ref{lem:prodex-split-last-zero}:
+
+\begin{lstlisting}[style=easycrypt, caption=Splitting off zero component \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite prodEx_split_last_zero. 
+rewrite size_map size_range.
+smt(@G @GP @List gt0_q). smt(). 
+rewrite -last_exp_zero. smt().
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1824-L1827}}
+
+The \texttt{prodEx\_split\_last\_zero} lemma\ref{lem:prodex-split-last-zero} states that if the last exponent is zero, that component contributes nothing to the product output, the detailed code format of proof for this lemma lies in the case study \ref{sec:case-study-prodex-split-last-zero}:
+\[
+\texttt{prodEx}([g_0, \ldots, g_q], [e_0, \ldots, e_q]) = 
+\texttt{prodEx}([g_0, \ldots, g_{q-1}], [e_0, \ldots, e_{q-1}])
+\]
+when $e_q = 0$.
+
+\subparagraph{Step 4.4: Range Reconciliation}
+
+The most complex part of this phase includes reconciling range expressions. In particular, after the transformations, it becomes necessary to translate between different range representations.
+
+\textbf{Step 4.4a: Simplify arithmetic bounds}
+
+\begin{lstlisting}[style=easycrypt, caption=Simplifying arithmetic expressions \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite size_map size_range. 
+have max_qplus : (max 0 (q + 2 - 1) - 1) = q by smt(gt0_q).
+rewrite max_qplus. rewrite -map_take.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1829-L1830}}
+
+
+This simplifies $(max\,0\,(q+2-1) - 1) = q$, which follows from $q > 0$.
+
+\textbf{Step 4.4b: Range splitting}
+
+\begin{lstlisting}[style=easycrypt, caption=Range splitting transformation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have take_range : take q (range 1 (q + 2)) = range 1 (q+1).
+have range_split: range 1 (q + 2) = range 1 (q + 1) ++ [q + 1].
+  smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1835-L1836}}
+
+The range $[1, 2, \ldots, q+1]$ can be split as:
+\[
+\texttt{range}\,1\,(q+2) = [1, 2, \ldots, q] \,\texttt{++}\, [q+1]
+\]
+
+
+\textbf{Step 4.4c: Category manipulation with take and concat}
+
+\begin{lstlisting}[style=easycrypt, caption=Take-cat lemma application \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite take_cat. rewrite size_range.
+have case_nop : !(q < max 0 (q + 1 - 1)) by smt(gt0_q). 
+rewrite case_nop. simplify.
+have case_not: (q - max 0 q <= 0) by smt(gt0_q). 
+rewrite case_not. simplify.
+smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1836-L1838}}
+
+The \texttt{take\_cat} lemma defined in easycrypt theories, handles taking from concatenated lists:
+\[
+\texttt{take}\,n\,(xs \texttt{++} ys) = 
+\begin{cases}
+xs \texttt{++} \texttt{take}\,(n - |xs|)\,ys & \text{if } n > |xs| \\
+\texttt{take}\,n\,xs & \text{otherwise}
+\end{cases}
+\]
+
+It verifies we're taking exactly the first part (the full \texttt{range 1 (q+1)}).
+
+\textbf{Step 4.4d: Converting between range bases}
+
+\begin{lstlisting}[style=easycrypt, caption=Range base conversion via drop \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite take_range. rewrite behead_drop. rewrite -map_drop.
+have drop_range : (drop 1 (range 0 (q + 1))) = (range 1 (q+1)). 
+  smt(@List gt0_q). 
+rewrite drop_range.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1839-L1840}}
+
+
+
+
+
+
+This proves the relationship between \texttt{range 0 (q+1)} and \texttt{range 1 (q+1)}:
+\[
+\texttt{drop}\,1\,[0, 1, 2, \ldots, q] = [1, 2, \ldots, q]
+\]
+
+The \texttt{behead} operation (removing the first element) is expressed as \texttt{drop 1}.
+
+
+
+
+
+
+
+
+
+
+\subparagraph{Step 4.5: Final Equality by Size Reasoning}
+
+The proof finally concludes by establishing the final equality:
+
+\begin{lstlisting}[style=easycrypt, caption=Final equality via prodEx\_sizele \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have last_eq : 
+  prodEx (map (fun (i : int) => g ^ exp O_CCA1_Limited.sk{1} i) (range 1 (q + 1))) exps 
+  = prodEx (map (fun (i : int) => g ^ exp O_CCA1_Limited.sk{1} i) (range 1 (q + 1)))
+           (take (size exps - 1) exps).
+rewrite prodEx_sizele. 
+rewrite size_map size_range. rewrite size_exps_analysis.
+smt(gt0_q @GP @ZModE). 
+rewrite size_map size_range. smt(gt0_q). 
+rewrite last_eq. trivial.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1841-L1849}}
+
+
+
+
+
+
+
+The \texttt{prodEx\_sizele}\ref{lem:prodex-sizele} lemma can prove that oversized exponents are ignored:
+\[
+\texttt{prodEx}(\text{bases}, \text{vec}) = 
+\texttt{prodEx}(\text{bases}, \texttt{take}(|\text{bases}|, \text{vec}))
+\]
+when $|\text{vec}| \geq |\text{bases}|$ where length of the \text{vec} greater or equal to \text{bases} .
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Case Study 2: ProdEx Split Last Zero Lemma}
+\label{sec:case-study-prodex-split-last-zero}
+
+This case study presents the formalization of the \texttt{prodEx\_split\_last\_zero} 
+lemma, a fundamental result in our linear algebra library that enables efficient 
+handling of representations with trailing zero exponents. This lemma is crucial 
+for the previous case study of our main proof. It is an important helper lemma we need for our main proof.
+
+\textit{Note: This section contains detailed implementation steps documenting 
+the learning process. Readers may skip to Section~\ref{sec:mainresult} for 
+the main results.}
+\subsection{The Lemma Statement}
+
+The lemma lies in the lemma \ref{lem:prodex-split-last-zero}, and here is the formal statement in EasyCrypt
+
+
+\begin{lstlisting}[style=easycrypt, caption=ProdEx split last zero lemma statement \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+lemma prodEx_split_last_zero (bases : group list) (exps : ZModE.exp list) :
+  size bases = size exps =>
+  0 < size exps  =>
+  nth witness exps (size exps - 1) = zero =>
+  prodEx bases exps = 
+  prodEx (take (size bases - 1) bases) (take (size exps - 1) exps).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1194-L1199}}
+
+The lemma requires three preconditions:
+\begin{enumerate}
+\item \textbf{Size equality}: \texttt{size bases = size exps} ensures lists are paired correctly
+\item \textbf{Non-empty}: \texttt{0 < size exps} ensures there exists at least one
+element
+\item \textbf{Zero last element}: \texttt{nth witness exps (size exps - 1) = zero} is the key property, which is the precondition we derived from the intermediate step of case study 1.
+\end{enumerate}
+
+
+\subsection{Proof Structure}
+
+The proof consists of approximately 30 lines and can be divided into four phases:
+
+\paragraph{Phase 1: Splitting the Exponent List}
+
+We begin by expressing \texttt{exps} as the concatenation of its prefix and the last element:
+
+\begin{lstlisting}[style=easycrypt, caption=Splitting exponents into prefix and last element \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* split exps into prefix and last element *)
+have exps_split: exps = take (size exps - 1) exps ++ [zero].
+rewrite -(cat_take_drop (size exps - 1)).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1204-L1205}}
+
+
+It use the following property:
+\[
+\texttt{list} = \texttt{take}\,n\,\texttt{list} \,\texttt{++}\, \texttt{drop}\,n\,\texttt{list}
+\]
+
+Next, we prove that the dropped part is exactly \texttt{[zero]}:
+
+\begin{lstlisting}[style=easycrypt, caption=Proving the dropped suffix is a single zero \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have drop_last: drop (size exps - 1) exps = [nth witness exps (size exps - 1)]. 
+smt(@List). smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1206}}
+
+Intuitively, \texttt{drop (size exps - 1) exps} removes all but the last element. For a list of size $n$, \texttt{drop (n-1)} results in a singleton list, which can be expressed as \texttt{[nth witness exps (n-1)]}, by hypothesis, this equals \texttt{[zero]}. Therefore, \texttt{exps = take (size exps - 1) exps ++ [zero]}.
+
+\paragraph{Phase 2: Splitting the Base List}
+
+Similarly, we perform the same splitting for the base list:
+
+\begin{lstlisting}[style=easycrypt, caption=Splitting bases into prefix and last element \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+(* split bases into prefix and last element *)
+have bases_split: bases = take (size bases - 1) bases ++ 
+                          [nth witness bases (size bases - 1)].
+rewrite -(cat_take_drop (size bases - 1)).
+have drop_last_base: drop (size bases - 1) bases = 
+                     [nth witness bases (size bases - 1)]. 
+smt(@List). 
+smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1210-L1212}}
+
+It tells:
+\[
+\texttt{bases} = \texttt{take}\,(n-1)\,\texttt{bases} \,\texttt{++}\, [g_{n-1}]
+\]
+
+where $g_{n-1} = \texttt{nth witness bases (size bases - 1)}$.
+
+\paragraph{Phase 3: Rewriting the Goal}
+
+After both splits established, we rewrite the goal to use these decompositions:
+
+\begin{lstlisting}[style=easycrypt, caption=Rewriting goal with split forms \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have tran : prodEx bases exps = 
+            prodEx (take (size bases - 1) bases ++ 
+                    [nth witness bases (size bases - 1)]) 
+                   (take (size exps - 1) exps ++ [zero]). 
+smt(). 
+rewrite tran.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1213-L1214}}
+
+The goal now shows the structure we need to analyze:
+
+
+\begin{lstlisting}[style=easycrypt, caption=Rewriting goal with split forms \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+prodEx (take (size bases - 1) bases ++ [nth witness bases (size bases - 1)])
+  (take (size exps - 1) exps ++ [zero]) =
+prodEx (take (size bases - 1) bases) (take (size exps - 1) exps)
+\end{lstlisting}
+
+
+
+
+
+
+
+
+
+
+
+\paragraph{Phase 4: Zip Distribution and Simplification}
+
+Finally, the key technical task in phase 4 is to distribute the \texttt{zip} operation across list concatenation.
+
+\subparagraph{Step 4.1: Zip Distribution}
+
+\begin{lstlisting}[style=easycrypt, caption=Distributing zip over concatenation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite /prodEx /ex. rewrite -bases_split.
+(* split zip and map *)
+have zip_split: 
+  zip bases (take (size exps - 1) exps ++ [zero]) = 
+  zip (take (size bases - 1) bases) (take (size exps - 1) exps)
+  ++ zip (drop (size bases - 1) bases) [zero].
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1215-L1219}}
+
+This use the \texttt{zip} distributivity lemma:
+\[
+\texttt{zip}\,(xs \texttt{++} ys, us \texttt{++} vs) = 
+\texttt{zip}\,(xs, us) \texttt{++} \texttt{zip}\,(ys, vs)
+\]
+where size $|xs| = |us|$ and $|ys| = |vs|$.
+
+Then it require us verifying size constraints:
+
+\begin{lstlisting}[style=easycrypt, caption=Verifying size constraints for zip distribution \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite -zip_cat_distributive. 
+rewrite !size_take.
+smt(). smt(). simplify. smt(). smt(@List).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1221-L1223}}
+
+
+\subparagraph{Step 4.2: Splitting the Product}
+
+With the zip split, we can now split the product:
+
+\begin{lstlisting}[style=easycrypt, caption=Splitting product over concatenation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+rewrite zip_split.  
+rewrite map_cat. 
+rewrite prod_cat.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1223}}
+
+This uses standard lemmas: the first is derived from the standard easycrypt library and the second lemma \ref{lem:prod-cat}:
+\begin{itemize}
+\item \texttt{map\_cat}: $\texttt{map}\,f\,(xs \texttt{++} ys) = 
+\texttt{map}\,f\,xs \texttt{++} \texttt{map}\,f\,ys$
+\item \texttt{prod\_cat}: $\texttt{prod}\,(xs \texttt{++} ys) = 
+\texttt{prod}\,xs \cdot \texttt{prod}\,ys$
+\end{itemize}
+
+After these procedure, the goal becomes:
+
+\begin{lstlisting}[style=easycrypt, caption=Splitting product over concatenation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+
+prod
+  (map (fun (i : group * GP.exp) => i.`1 ^ i.`2)
+     (zip (take (size bases - 1) bases) (take (size exps - 1) exps))) *
+prod
+  (map (fun (i : group * GP.exp) => i.`1 ^ i.`2)
+     (zip (drop (size bases - 1) bases) [zero])) =
+prod
+  (map (fun (i : group * GP.exp) => i.`1 ^ i.`2)
+     (zip (take (size bases - 1) bases) (take (size exps - 1) exps)))
+\end{lstlisting}
+
+
+
+\subparagraph{Step 4.3: Eliminating the Zero Term}
+
+Then we need to prove that the second product equals the identity using the following steps:
+
+\begin{lstlisting}[style=easycrypt, caption=Proving the zero component equals identity \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have : prod (map (fun (i : group * GP.exp) => i.`1 ^ i.`2)
+            (zip (drop (size bases - 1) bases) [zero])) = e.
+have drop_single: drop (size bases - 1) bases = 
+                  [nth witness bases (size bases - 1)].
+  smt(@List). 
+rewrite drop_single.
+simplify.
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1224-L1228}}
+
+
+
+After that, we need to show:
+\[
+(\texttt{nth witness bases}(n-1))^0 = e
+\]
+
+By following calls:
+
+\begin{lstlisting}[style=easycrypt, caption=Applying group identity for zero exponent \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+have exp_zero: (nth witness bases (size bases - 1)) ^ zero = e. 
+  smt(@G @GP).
+rewrite exp_zero. 
+smt(@G @GP).
+\end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L1230-L1231}}
+
+The SMT solver uses the group axiom: $\forall g \in G.\, g^0 = e$.
+
+
+\subparagraph{Step 4.4: Final Simplification}
+
+With the second product equal to identity, we can say:
+
+\begin{lstlisting}[style=easycrypt, caption=Final simplification using group identity \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+smt(@G @GP).
+\end{lstlisting}
+
+This final step, the SMT solvers uses the group identity law:
+\[
+a \cdot e = a \quad \text{for all } a \in G
+\]
+
+Therefore, we can conclude the value of two side is equivalent.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Lessons Learned from case study and formaliztion procedure}
+In total, this two case studies illustrate two main parts of our work on the formal verification of the bileteral equivalence. But it can show my learning procedure during this project:attempting to prove lemmas, revealed missing definitions or lemmas, leading to refinement of the algebraic infrastructure. This iterative process, while time-consuming, led to a more robust and reusable framework, and do it repeatly until we finished two-direction proof.
+
+
+As we can learn from the case study, it is common to see operations considered "obvious" in paper proofs (e.g., "flatten nested products") require extensive formal justification, often requires dozens of proof steps than expected.
+In addition, even simple list operations require exhaustive case analysis . The EasyCrypt enforces completeness, preventing implicit assumptions, but it also shows the accurancy of this formalization.
+
+
+
+
+
+
+
+
+
+\section{Main Results}
+\label{sec:mainresult}
+
+We present the first machine-checked verification of the bilateral reduction between IND-CCA1 security of ElGamal KEM and the q-DDH assumption in the Algebraic Group Model, formalizing the paper proof of Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018} in EasyCrypt.
+
+\subsection{Lessons Learned from case study and formaliztion procedure}
+In total, the two case studies illustrate two main parts of our work on the formal verification of the bileteral equivalence. But it can show my learning procedure during this project:attempting to prove lemmas, revealed missing definitions or lemmas, leading to refinement of the algebraic infrastructure. This iterative process, while time-consuming, led to a more robust and reusable framework, and do it repeatly until we finished two-direction proof.
+
+
+As we can learn from the case study, it is common to see operations considered "obvious" in paper proofs (e.g., "flatten nested products") require extensive formal justification, often requires dozens of proof steps than expected.
+In addition, even simple list operations require exhaustive case analysis . The EasyCrypt enforces completeness, preventing implicit assumptions, but it also shows the accurancy of this formalization.
+
+
+\subsection{enhance the rigorous and the readability of algebraic reduction}
+Compared with A.3 of the paper \cite{fuchsbauer2018}, in our proof, all such reasoning must be explicit in the game logic, to be specific, we are required to specify the rule that 'invalid queries should return a fixed value', while formally indicate that this behavior do not increase the attackers' success probability. 
+
+As a result, in our formalization, the proof becomes entirely transparent, for instance, we specify the quantity of the queries that adversary can make; what conditions the oracle should update state. This coherence ensures that the formal proof not only eliminate the hidden flaws, but also offers a reproducible framework for future reductions and research.
+
+
+
+\subsection{show the power of Algebraic Group Model}
+Our EasyCrypt formalization confirms this result: we build a reduction showing that any algebraic adversary breaking ElGamal’s IND-CCA1 security can be converted into a q-DDH distinguisher, with both advantages exactly equal.
+
+It indicates the power of the AGM itself: due to adversaries must be “algebraic” (i.e., every group element they output must come with a linear representation), indicates that the unprovable results in the standard model can often be proven in the AGM.
+For example, Fuchsbauer et al.~\cite{fuchsbauer2018} showed that several assumptions (such as CDH, SDH, and interactive LRSW) become equivalent to the discrete logarithm problem under the AGM.
+
+Our formalization adds a tool-verified instance to this line of results, demonstrating that the AGM can generate clear and theoretically meaningful security statements.
+
+
+
+
+\subsection{Formalizing Algebraic Adversaries in EasyCrypt}
+One of the key results of our work is indicating how the special adversary model of the AGM can be captured fully using the EasyCrypt framework. The AGM is a notion that allows adversaries to perform group operations but requires they provide its algebraic representation whenever they output a new group element. In our work, the oracle enforces this restriction by checking whether \texttt{c = prodEx l z} holds, 
+where l is the list of group elements already known to the adversary, 
+and z is the vector of exponents given by the query. 
+Then, if the query fails the condition, the oracle is expected to return a fixed value witness and do not update the state, which directly reflects the constraint of the AGM that the adversary must be able to express each one as a linear combination of previously observed elements rather than generate new group elements.
+
+To implement this, we establish a oracle interface that introducing a exponent-vector parameter. Then the exploration and the distinguishing phases of the adversary are designed to interact with this algebraic oracle. By this modeling, the security game is embedded within EasyCrypt, ensuring that every reasoning step are able to verified mechanically. This indicates that even non-standard adversary models can be precisely express and represented and formally verified through appropriate modular design in EasyCrypt.
+
+
+

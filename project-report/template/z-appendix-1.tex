@@ -3,7 +3,7 @@
 
 
 
-This appendix contains the complete EasyCrypt proofs for the key lemmas used in our vector operations and algebraic manipulations. These proofs are extracted directly from our \texttt{INDCCA.ec} file without modification.
+This appendix contains the complete EasyCrypt proofs for the key lemmas used in our vector operations and algebraic manipulations. These proofs are extracted directly from our \texttt{INDCCA.ec} file without modification. The full formal verification code is available at: \url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec}
 
 \section{Distributivity and Scaling Proofs}
 \label{sec:distributivity-proofs}
@@ -21,9 +21,7 @@ proof.
     smt(@G @GP).
   rewrite exp_mult_dist. rewrite IH. smt().
 qed.
-\end{lstlisting}
 
-\begin{lstlisting}[style=easycrypt, caption=Proof of Scaling Consistency (Primary), breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Scaling lemma: prodEx with scaled exponents *)
 lemma prodExScale1 bases exp scala :
     prodEx bases exp ^ scala = prodEx bases (scalev exp scala).
@@ -33,9 +31,7 @@ proof.
   rewrite -!map_comp. congr. apply fun_ext => xy.
   by case: xy => [x y] /=; rewrite /(\o) /= expM.
 qed.
-\end{lstlisting}
 
-\begin{lstlisting}[style=easycrypt, caption=Proof of Scaling Consistency (Alternative), breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Alternative scaling lemma using ex *)
 lemma prodExScale2 bases exp scale :
     prodEx bases exp ^ scale = prodEx (ex bases (nseq (size bases) scale)) exp.
@@ -51,8 +47,7 @@ proof.
   rewrite nseq_cons. simplify.
   split. smt(@G @GP). rewrite IH. smt().
 qed.
-\end{lstlisting}
-\begin{lstlisting}[style=easycrypt, caption=Proof of Linear Distributivity, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+
 (* Addition distributivity for prodEx *)
 lemma prod_ex_addv (base : group list) (a b : exp list) :
     size a = size base => size b = size base =>
@@ -288,6 +283,40 @@ proof.
   rewrite /prodEx /ex.
   rewrite zip_cons map_cons prod_cons.
   trivial.
+qed.
+\end{lstlisting}
+
+
+
+\section{prodEx sizele Proofs}
+\label{sec:prodex-sizele-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Size Preservation Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+
+(* ProdEx with oversized exponent list can be truncated *)
+lemma prodEx_sizele a b :
+    size a < size b => prodEx a b = prodEx a (take (size a) b).
+proof.
+    move => size_neq.
+    rewrite /prodEx /ex.
+    congr.  congr.
+    elim: a b size_neq => [|a_h a_t IH] [|b_h b_t] //= size_lt.
+    have h : !( 1 + size a_t <= 0) by smt(size_ge0). rewrite h. simplify. rewrite IH. smt(). smt().
+qed.
+    
+\end{lstlisting}
+
+
+
+
+\section{sumv cons Proofs}
+\label{sec:sumv-cons-proofs}
+
+\begin{lstlisting}[style=easycrypt, caption=Proof of Size Preservation Properties, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+lemma sumv_cons (v : exp list) (vs : exp list list) :
+    sumv (v :: vs) = addv v (sumv vs).
+proof.
+  rewrite /sumv. simplify. smt(). 
 qed.
 \end{lstlisting}
 

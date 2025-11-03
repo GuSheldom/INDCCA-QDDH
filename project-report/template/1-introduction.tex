@@ -1,45 +1,43 @@
 \chapter{Introduction}
 
-When we try to research on the topic about cryptography, a natural question is: how can we tell whether a cryptographic construction is “really secure” against real-world attackers? Broadly speaking there are two routes. One is destructive—designing algorithms and make experiments to find attacks and counterexamples. The other is constructive—providing security proofs that can be independently reproduced and proved. This paper follows the constructive approach and goes a step further by mechanizing the proofs: we translate security into executable games and reductions, and use a proof assistant to automatically check each step of the reasoning.
+When we try to research on the topic about cryptography, a fundamental question is: how can we tell whether a cryptographic construction is “really secure” against real-world attackers? In particular, there are two routes. One is to experiments to find attacks and counterexamples. The other is to provide security proofs that can be independently reproduced and proved. Our project follows the second approach: we translate a bidirectional security into executable games and reductions, and use a proof assistant to automatically check each step of the reasoning.
 
-In particular, we study a classical ElGamal Key Encapsulation Mechanism (\KEM) and its security in the attack model that allows decryption queries before the challenge is issued, denoted \INDCCAone. At the same time we consider a algebraic hardness assumption, the q-Decisional Diffie–Hellman problem (\qDDH). Our central claim is that, under accurate and suitable formalisation, breaking the \INDCCAone security of the ElGamal \KEM is essentially the same task as distinguishing the two distributions in the \qDDH problem for the same parameters. In other words, the two problems are equivalent and tight: given any adversary on one side we can covert it without loss to an adversary on the other side, preserving the adversary’s success probability up to negligible loss.
 
-Intuitively, \INDCCAone allows the adversary to query a decryption oracle a limited number of times before receiving a single challenge ciphertext, but still requires that the adversary cannot distinguish a real session key from a random key. The \qDDH problem asks that, even if an adversary obtains several group elements corresponding to powers of a secret exponent, it cannot distinguish whether a given element corresponds to a true Diffie–Hellman product or to random generated. In the algebraic group setting, we want to trace adversarial group elements through their linear relations to known generators, which allows for constructing verifiable oracle responses. This technique enable us tightly mechanized correspondence between the two security frameworks.
+In particular, we study a bilateral equivalence established in~\cite{fuchsbauer2018}, between the ElGamal Key Encapsulation Mechanism (\KEM) and its security in the attack model that allows decryption queries before the challenge is issued, denoted \INDCCAone and a algebraic hardness assumption, the q-Decisional Diffie–Hellman problem (\qDDH) in the Algebraic Group Model (AGM). All the terms mentioned above is detailed explained in the Section~\ref{sec:background1}.
+
+
+The central claim of our work is that, under accurate and suitable formalisation, is it possible to prove that breaking the \INDCCAone security of the ElGamal \KEM is basically the same task as distinguishing the two distributions in the \qDDH problem for the same parameters. 
+
+
 
 
 \section{Motivation}
+\label{sec:motivate}
 
+In cryptographic security analysis, the \emph{computational model} provides a formal framework which defines the adversaries' capabilities and constraints of adversaries when attacking a cryptographic scheme to determine the security of a cryptosystem. 
 
+In particular, the \emph{standard model} (explained in subsection~\ref{subsec:sm}) imposes minimal restrictions which refers to the computational framework where the adversary is assumed to be bounded only by the time and computational power, while \emph{idealized models}(explained in subsection~\ref{subsec:im}) such as the random oracle model
+or generic group model impose additional constraints, where the adversaries are assumed to only accessible to a random encoding of group elements, rather than the concrete and efficiently computable representations. The Algebraic Group Model (AGM)(explained in subsection~\ref{sec:agm-background}), introduced by Fuchsbauer, Kiltz, and Loss\cite{fuchsbauer2018}, provides a middle ground between the standard model and idealized models mentioned above. The full explanation of these models lies in the section~\ref{sec:crypto-models}.
 
-Public-key cryptography forms the foundation of modern secure cryptographic systems, enabling the confidential exchange of information over untrusted networks. Among its fundamental security notions, Key Encapsulation Mechanisms (\KEM) play a crucial role in constructing shared symmetric keys for subsequent encrypted communication\cite{Sharifian2021}. 
-To remain secure against active attackers, these mechanisms require strong security guarantees, with indistinguishability under chosen-ciphertext attacks (IND-CCA) being among the most demanding and practically relevant.
-The \INDCCAone variant, where adversaries have access to a decryption oracle only before seeing the challenge ciphertext, reflects many real-world attack scenarios while remaining trackable for theoretical analysis.
-
-
-
-The ElGamal-based KEM, derived from the classical ElGamal construction, bases its security on the discrete logarithm problem in cyclic groups\cite{Sven2024}.
-
-While ElGamal in its original public-key encryption form achieves only IND-CPA security~\cite{pandey2021}, its KEM formulation enables stronger guarantees when analyzed under appropriate computational assumptions\cite{Sven2024}. 
-However, providing a fully formal and tight IND-CCA1 proof in the standard model remains challenging, often requiring non-trivial or idealized assumptions.
-
-The Algebraic Group Model (AGM), introduced by Fuchsbauer, Kiltz, and Loss\cite{fuchsbauer2018}, provides a middle ground between the standard model and idealized models such as the random oracle model. 
 In the AGM, adversaries are restricted to be \emph{algebraic}, meaning they can only produce group elements for which they can provide explicit representations in terms of previously seen group elements. This restriction represents the intuition that adversaries cannot produce group elements arbitrarily but must construct them through the algebraic structure of existing elements.
 
 The AGM has proven particularly valuable for analyzing the security of cryptographic schemes based on discrete logarithm assumptions. It enables proofs that would be infeasible in the standard model while avoiding the oversimplifications of purely idealized settings\cite{Bauer2021}. Recent work has highlights that many schemes, including digital signatures~\cite{fersch2018} and KEMs derived from ElGamal, can be proven secure under standard hardness assumptions when analyzed in the AGM.
 
 
 
-Our work builds on this foundation by leveraging AGM-style techniques to indicates the IND-CCA1 security of ElGamal-based \KEM under the \qDDH assumption. Although our proof does not require the full AGM framework, it employs the key insight that adversaries' group-element productions can be tracked through linear algebraic representations, enabling sophisticated oracle simulation techniques.
+Our work builds on this foundation by leveraging AGM-style techniques to indicates the IND-CCA1 security of ElGamal-based \KEM under the \qDDH assumption. 
 
-In addition, the mechanized proof formalizes a bilateral reduction between the \INDCCAone security of the ElGamal-based \KEM and the \qDDH assumption in EasyCrypt, establishing a computational equivalence that ensures the proof’s tightness and soundness.
+In addition, as the main foundation of our work, Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018} established 
+a bilateral reduction between the IND-CCA1 security of ElGamal-based KEM and 
+the q-DDH assumption, providing a paper proof of this equivalence. Based 
+on their theoretical framework, our work aims to provide a machine-checked 
+verification of this reduction using the EasyCrypt. We want our
+formalization translates their high-level cryptographic arguments into entire
+mechanized proofs, making explicit all reasoning that is implicit in the 
+original paper proof and ensuring correctness.
 
-The proofs are mechanized in the EasyCrypt proof assistant\cite{easycrypt}, which is tailored for game-based cryptographic proofs at code level and gives support for common proof techniques, for instance, byequiv transformations, probabilistic reasoning, random variable transformations and algebraic manipulation techniques, it has been widely applied to build the security of the majority of cryptographic primitives and to connect with formalized proofs and their particular implementations.
+The proofs are mechanized in the EasyCrypt proof assistant\cite{easycrypt}, which is tailored for game-based cryptographic proofs at code level and gives support for common proof techniques, for instance, byequiv transformations, probabilistic reasoning, random variable transformations and algebraic manipulation techniques, it has been widely applied to build the security of the majority of cryptographic primitives and to connect with formalized proofs and their particular implementations. The detailed easycrypt introduction is in the Section~\ref{sec:easycrypt-framework}
 
-Our main theorem can be informally phrased as follows:
-\begin{quote}
-\emph{The ElGamal-based Key Encapsulation Mechanism (\KEM) is \INDCCAone secure under the q-DDH assumption in cyclic groups of prime order and adversaries are modeled as algebraic in the sense of the AGM\cite{fuchsbauer2018}.}
-\emph{The reduction between an IND-CCA1 adversary against ElGamal-based \KEM and a distinguisher for the q-DDh problem is tight, ensuring equality of advantages up to negligible terms. The security bound holds unconditionally with respect to the simulation, without loss beyond polynomial overhead. }
-\end{quote}
 
 
 
@@ -47,23 +45,44 @@ Our main theorem can be informally phrased as follows:
 
 
 \section{Problem Statement}
+\label{sec:problemstate}
 
 The central question we address is:
 
 \begin{quote}
-\emph{Can we introduce a formal and bidirectional methodology, with tight concrete bounds, the equivalence between breaking IND-CCA1 security of ElGamal-based \KEM and solving the q-DDH problem, with both  reductions mechanized and machine-checked?}
+\emph{Can we introduce a formal and bidirectional methodology, to prove the equivalence between breaking IND-CCA1 security of ElGamal-based \KEM and solving the q-DDH problem, with both reductions machine-checked?}
 \end{quote}
 
-This research question requires several non-trivial technical challenges that required to be carefully addressed in order to build a mechanized proof
+This research question requires several challenges that required to be carefully addressed in order to build a mechanized proof
 
 \begin{enumerate}
-\item \textbf{Reduction Construction}: The core of our work is to design precise and efficient reductions that bridge the IND-CCA1 security game with the q-DDH problem. Precisely, the reduction is required to translate any IND-CCA1 adversary against ElGamal-based \KEM into a distinguisher for q-DDH, and conversely, it should also established an methodology to transform a q-DDH distinguisher into IND-CCA1 adversary. Achieving this requires a careful embedding of the q-DDH challenge into the Elgamal-based \KEM experiment while preserving the advantage of adversary. 
-In conclusion, the challenge is not only in defining the reduction accurately but also in ensuring that it do not tolerate any loss of advantage occurs.
+\item \textbf{Reduction Construction}: 
 
-\item \textbf{Oracle Simulation}: One of the most delicate and significant aspects of our security proofs is the establishment of a decryption oracle simulator. This orcale is required to be consistently answering adversarial queries while withholding information that would trivialize the underlying hard problems. In our setting, this needs simulating decryption queries in a way that is consistent with the \qDDH challenge without revealing the hidden exponent. This is particularly challenging under the AGM, where adversaries provide linear representations of ciphertexts. The simulator is required to make leverage of these representations to provide faithful reflections while not leaking unintended information.
-\item \textbf{Formal Verification}: Despite the high-level construction, our objective is to formalize and mechanize the entire reduction within the EasyCrypt, which requires us to encode all probabilistic reasoning, hybrid argument and algebraic manipulation in order to checked by the machine. In contrast to traditional paper proofs, where intuition often fills in the gaps. Constraints on length, representation validity and randomness-preserving transformations must all be explicitly formalized. In conclusion the key challenge is reconciling the intuitive reasoning of algebraic reductions with the strict requirements of mechanized verification framework.
 
-\item \textbf{Tightness Analysis}: Finally, it is essential to illustrate the reduction is not only accurate but also tight in a concrete security sense. It involves proving that the adversarial is maintained exactly when transforming between the IND-CCA1 and q-DDH games. Constructing such concrete bounds is significant for the practical relevance of our results, while it ensures that the hardness of the q-DDH problem directly translates to the security guarantees for ElGamal-based \KEM. Additionally, by examining tightness, it enables us to gain insight into the efficiency of the reductions and be able to verify that the proof has avoided artificial losses of security that might otherwise reduce its practical impact.
+The reduction from~\cite{fuchsbauer2018} provides bidirectional transformations between IND-CCA1 adversaries and q-DDH distinguishers.
+The first important part of our work is to formalize both reductions using EasyCrypt. Precisely, the reduction is required to convert any IND-CCA1 adversary against ElGamal-based \KEM into a distinguisher for q-DDH, and conversely, it should also established an approach to transform a q-DDH distinguisher into IND-CCA1 adversary. This reduction embeds the q-DDH instance into the \KEM security game, relating the adversarial advantages in both problems
+.
+
+\item \textbf{Oracle Simulation}: 
+
+An important aspect of the reduction is the decryption oracle simulator, the oracle is required to consistently answer the queries from adversaries while avoiding information leakage that would trivialize the \qDDH challenge. In our formalization, we should mechanize how the simulators handles decryption queries in a way that is consistent with the \qDDH challenge while preserving the hidden exponent. We should follow the AGM setting~\cite{cong2022}, where adversaries should provide linear representations of ciphertexts, allowing the simulator to compute the responses based on this representations. Our easycrypt formaliztion should verify this simulation correctly preserve consistency without information leakage.
+
+
+
+
+
+\item \textbf{Formal Verification}: 
+
+Beyond the high-level reduction, a key challenge lies in mechanizing the proof within EasyCrypt, which requires converting the theoretical reduction proof from \texttt{A.3} in ~\cite{fuchsbauer2018} into a entirely machine-checked one, it requires us to making explicit all reasoning that is left implicit in the paper proof. For instance, we need to encode all probabilistic reasoning, hybrid argument and algebraic manipulation correctly. In contrast to the traditional paper proofs where intuition often fill in the gaps, mechanized verification requires complete formal rigor for each step such as constraints on length and the randomness-preserving transformations. This part is the most significant part of our work and the main challenge is reconciling the intuitive algebraic reasoning with the strict requirements of EasyCrypt.
+
+
+\item \textbf{Learning EasyCrypt}: 
+
+An additional main challenge is mastering the EasyCrypt proof assistant itself, which requires understanding both its proof logic (pRHL) and its tactical language. At the initial stage of this project, EasyCrypt was an unfamiliar tool for me. Mastering the EasyCrypt requires extensive reading of the reference manual and sample code, repeated experimentation with different proof strategies, and continuous learning and adjustment during the ongoing formalization process.
+
+
+
+
 \end{enumerate}
 
 % \begin{figure}[htbp]
@@ -184,39 +203,77 @@ In conclusion, the challenge is not only in defining the reduction accurately bu
 % \label{fig:detailed-bilateral-reduction}
 % \end{figure}
 
-\newpage
+
 
 \section{Main Contributions}
 
-Our work makes several significant contributions to both theoretical cryptography and formal verification:
+This thesis provides an entire machine-checked formalization of the bidirectional reduction between \INDCCAone security of ElGamal \KEM and \qDDH from ~\cite{fuchsbauer2018}. The mechanization process handles the key challenges in formal verification and indicates the feasibility of machine checking the AGM based cryptographic proofs. The main contributions are:
+
+
 
 \begin{enumerate}
-\item \textbf{Reduction Theorem}: We prove the \texttt{qDDH\_Implies\_INDCCA1\_ElGamal }and \newline \texttt{INDCCA1\_ElGamal\_Implies\_qDDH} lemma, establishing the equivalence between q-DDH hardness and IND-CCA1 security:
-  \[
-  \Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, B).\text{main}() : \text{res}] = \Pr[\text{QDDH}(A_{\text{from\_INDCCA1}}(B)).\text{main}() : \text{res}]
-  \]
 
-\item \textbf{Oracle Simulation Technique}: We develop a sophisticated method for simulating the decryption oracle which utilizes linear algebraic representations to remain consistency without circular dependencies.
 
-\item \textbf{Linear Algebra Library}: We contribute a reusable library of operators and their lemmas to EasyCrypt codebase that able to solve linear algebraic operations over exponents:
+
+
+\item \textbf{Complete Bilateral Reduction Formalization}: 
+
+We provide a machine-checked formalization in EasyCrypt of both directions of the reduction from ~\cite{fuchsbauer2018}, to be more specific, we try to construct the computational equivalence by the following code format:
+
+We formalize the \texttt{qDDH\_Implies\_INDCCA1\_ElGamal }and \newline \texttt{INDCCA1\_ElGamal\_Implies\_qDDH} lemma, verifying the equivalence between q-DDH hardness and IND-CCA1 security from ~\cite{fuchsbauer2018}:
+\begin{equation}
+\label{eq:bilateral-equivalence}
+\Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, B).\text{main}() : \text{res}] = 
+\Pr[\text{QDDH}(A_{\text{from\_INDCCA1}}(B)).\text{main}() : \text{res}]
+\end{equation}
+
+The formalization we construct verify the correctness of the relationship claimed in the original paper~\cite{fuchsbauer2018}
+
+\item \textbf{Oracle Simulation Technique}: 
+
+We formalized the decryption oracle simulation technique from~\cite{fuchsbauer2018} using EasyCrypt, which leverages algebraic representations to answer the adversaries' queries. In doing so, we  handle the challenge in encoding the extraction of representation while ensuring the simulator preserving the consistency invariants.
+
+\item \textbf{Linear Algebra Manipulation framework}: 
+
+To make the formalization more efficient, we develop a framework consists of a collection of EasyCrypt operators and corresponding lemmas that able to solve linear algebraic operations over exponents:
   \begin{itemize}
   \item Core operators: \texttt{prodEx}, \texttt{addv}, \texttt{scalev}, \texttt{sumv}, \texttt{shift\_trunc}
   \item Over 30  lemmas of distributivity, scaling, base reduction, and vector operations
   \item Reusable components for AGM proofs with linear combinations
   \end{itemize}
 
-\item \textbf{Complete EasyCrypt Formalization}: Our proof is entirely mechanized using EasyCrypt, comprising over 2000 lines code, with extensive documentation and modular design for future usage.
+\item \textbf{Complete Machine-checked proof}: 
 
-\item \textbf{Tight Security Analysis}: We indicate that our reduction is tight, without security loss, providing optimal concrete security bounds.
+The entire proof of theorem is mechanized using the EasyCrypt, consists of over 2000 lines of code, including lemmas, defintions and proof scripts. Our work shows that sophisticated AGM-based reductions and oracle simulations and proof process can be successfully translated into code format.
+
+
+\item \textbf{Insights from Formalization}: 
+
+Through the entire process of formalization, I obtained detailed understanding of the reduction's structure and the challenges of formalizing AGM-based proofs. In addition, I think it will be more easy for me to using EasyCrypt to do future formalizing, which may be valuable for future efforts to mechanize similar cryptographic proofs.
+
 \end{enumerate}
 
 
 
 
 
+\section{Technical Overview}
 
+Figure~\ref{fig:detailed-bilateral-reduction} indicates an overview of the reduction framework from~\cite{fuchsbauer2018} that we formalize in EasyCrypt.
+
+At a high level, our goal is to using EasyCrypt to show that the capability to break the IND-CCA1 security of the ElGamal-based \KEM\ is computationally equivalent to handling the \qDDH\ problem. Our formalization mechanizes both directions of this equivalence, verifying that adversaries can be transformed in either direction while preserving their computational advantages.
+
+In the \textbf{first direction},the reduction converts any adversary of ElGamal \KEM\ under chosen-ciphertext attacks into an algorithm that handle the \qDDH\ challenge. 
+In the \textbf{reverse direction}, the reduction transforms an \INDCCAone adversary from any \qDDH distinguisher by embedding the \KEM challenge into a \qDDH challenge.
+
+A key technical point is the leverage of \textbf{algebraic tracking}, inspired by the Algebraic Group Model~\cite{fuchsbauer2018}. Where every group element generated during the simulation is represented as a linear combination of previously known ones, ensures that simulated oracles answer consistently and guarantees every adversarial action has a verifiable algebraic explanation.
+
+Finally, the entire framework, containing oracle simulations, linear algebra operators (\texttt{prodEx}, \texttt{addv}, \texttt{scalev}, \texttt{sumv}) and supporting lemmas is implemented and mechanically verified in the \textsc{EasyCrypt} proof assistant, which guarantees the correspondence between the two games is not only theoretically sound but also \emph{machine-checked}.
+
+By completing all the preparation work we mentioned above, making our machined-checked proof stage become efficiency and easy to prove the equivalence we mentioned: equation~\ref{eq:bilateral-equivalence}
 
 \newpage
+
 
 
 \begin{figure}[H]
@@ -307,7 +364,7 @@ Our work makes several significant contributions to both theoretical cryptograph
     • Outputs IND-CCA1 guess
 };
 % Main equivalence
-\draw[equiv] (indcca-game) -- (qddh-game) node[midway, above] {\textbf{Tight Bilateral Equivalence}};
+\draw[equiv] (indcca-game) -- (qddh-game) node[midway, above] {\textbf{Bilateral Equivalence}};
 
 % Connections to schemes
 \draw[arrow] (indcca-game) -- (elgamal) node[midway, left] {uses};
@@ -326,7 +383,7 @@ Our work makes several significant contributions to both theoretical cryptograph
     • Limited Decryption Oracle: requires $c = \text{prodEx}(l, z)$\\
     • Linear Algebra Library: \texttt{prodEx}, \texttt{addv}, \texttt{scalev}, \texttt{sumv}\\
     • 30+ Supporting Lemmas: distributivity, scaling, base reduction\\
-    • Tight Analysis: $\mathsf{Adv}_{\text{IND-CCA1}} = \mathsf{Adv}_{\text{q-DDH}}$
+    • Advantage Preservation: $\mathsf{Adv}_{\text{IND-CCA1}} = \mathsf{Adv}_{\text{q-DDH}}$
 };
 
 \draw[arrow, dotted] (forward-red) -- (oracle-details);
@@ -340,20 +397,6 @@ Our work makes several significant contributions to both theoretical cryptograph
 
 
 
-\section{Technical Overview}
-
-Figure~\ref{fig:detailed-bilateral-reduction} indicates an intuitive overview of our proof technique.
-At a high level, our goal is to show that the capability to break the IND-CCA1 security of the ElGamal-based \KEM\ is computationally equivalent to handling the \qDDH\ problem. 
-Instead of relying on a one-way reduction, our analysis establishes a \emph{two-direction correspondence}—showing that both can be transformed into the other without any meaningful loss.
-
-The proof process by building two designed reductions. 
-In the \textbf{first direction}, we indicate that any adversary ability to breaking the ElGamal \KEM\ under chosen-ciphertext attacks can be covert into an algorithm that handle the \qDDH\ challenge. 
-In the \textbf{reverse direction}, we demonstrate that a successful \qDDH\ distinguisher can be used to build an adversary that breaks the \KEM.
-
-A key technical component is the leverage of \textbf{algebraic tracking}, where every group element generated during the simulation is represented as a linear combination of previously known ones. 
-This idea, inspired by the Algebraic Group Model~\cite{cong2022}, ensures that simulated oracles behave consistently and ensures every adversarial action has a verifiable algebraic explanation.
-
-Finally, the entire framework, containing oracle simulations, linear algebra operators (\texttt{prodEx}, \texttt{addv}, \texttt{scalev}, and \texttt{sumv}), and supporting lemmas—is implemented and mechanically verified in the \textsc{EasyCrypt} proof assistant, which guarantees the correspondence between the two games is not only theoretically sound but also \emph{machine-checked}.
 
 
 % \subsection{Problem Structure and Games}
@@ -511,30 +554,6 @@ Finally, the entire framework, containing oracle simulations, linear algebra ope
 
 
 
-\subsection{Key Technical Components}
-
-The success of our formalized proof of bilateral reduction relies on several sophisticated technical innovations:
-
-\subsubsection{Limited Decryption Oracle.} The basic of our approach is a constrained decryption oracle that requires adversaries to provide algebraic representations for their queries. Specifically, for any decryption query $(C, z)$, the oracle will verify that $C = \text{prodEx}(l, z)$ where $l$ is the current list of known group elements and $z$ is a vector of exponents. This restriction ensures:
-\begin{itemize}
-\item The simulator will not be request to expose information of discrete logarithms
-\item All group elements have explicit linear representations by the generation of adversary 
-\item The oracle simulation maintain consistency in both directions . 
-\end{itemize}
-
-\subsubsection{Linear Algebra Library.} We develop a comprehensive library of operators and lemmas for manipulating linear combinations in the exponent field:
-\begin{itemize}
-\item \textbf{Core Operators:} \texttt{prodEx} (product of exponentiations), \texttt{addv} (vector addition), \texttt{scalev} (scalar multiplication), \texttt{sumv} (vector summation), and \texttt{shift\_trunc} (shift and truncate for alignment)
-\item \textbf{Algebraic Properties:} Over 30 supporting lemmas covering distributivity, scaling laws, base reduction, zero-vector properties, and shift-truncate compatibility
-\item \textbf{Consistency Guarantees:} All operations preserve the correspondence between linear algebra in the exponent field and group operations
-\end{itemize}
-
-\subsubsection{Representation Tracking.} Throughout both direction of reductions, we maintain discipline of tracking the linear representations of all group elements that enables:
-\begin{itemize}
-\item Consistent oracle simulation without exposure of knowledge of secret keys
-\item Tight security analysis with no loss in adversarial advantages
-\item Modular proof structure that can be extended 
-\end{itemize}
 
 
 
@@ -547,42 +566,4 @@ The success of our formalized proof of bilateral reduction relies on several sop
 
 
 
-
-
-
-
-\subsection{Formal Verification Infrastructure}
-
-Our entire proof is fully mechanized in the EasyCrypt , cosists of over 2000 lines of verified code. The formalization provides not only a transformation of the paper proof ~\cite{fuchsbauer2018} into mechanized, but also offering a methodological contribution in its own right. Specifically, it provides benefits specified below that strengthen both the soundness and reusability:
-
-
-
-\begin{itemize}
-\item \textbf{Complete Mechanization:} Every aspect of the security argument, such as game transformations, oracle simulations and algebraic manipulations has been expressed by EasyCrypt. Unlike paper proofs, there is no step left at the intuitive level, in particular, the boundary condition and random variable transformation is completely strictly formalized.
-
-
-
-
-
-\item \textbf{Modular Design:} 
-The development makes contribution of  a dedicated linear-algebra library with a reusable reduction components. These modules are  designed to be generic and independent of ElGamal itself, enable them to be applied to a broader range of AGM-style proof, for instance, make proofs for digital signatures, polynomial commitments and so on.
-
-
-\item \textbf{Reproducible Results:}  Due to the proof is fully mechanized, it can be independently rerun, checked, and extended by future researchers, that ensures the results are not only correct once,  but keep verifiable as the EasyCrypt platform evolves. Future researchers can build on this code-base as a foundation for more complex cryptographic proofs on AGM.
-
-
-
-
-
-
-
-
-\item \textbf{Hidden Assumption Elimination:} Formal verification requires the proof to expose all implicit requirements. Subtleties that might be informally justified in paper proof, for instance, vector length constraints and randomness-preserving bijections are  discharged mechanically by EasyCrypt, which prevents the presence of unstated assumptions and ensures the security reduction is strictly formalized and accurate.
-
-
-
-
-\end{itemize}
-
-All in all, this aspects above indicates that the IND-CCA1 security of ElGamal and the hardness of the q-DDH problem are not only related through a reduction, but are computationally equivalent with perfect tightness. Additionally, our contribution is more than just a reimplementation of a known proof but a carefully formalized, reproducible and reusable approach.
 

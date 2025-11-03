@@ -9,11 +9,11 @@ Our analysis focuses on the KEM formulation of ElGamal, specifying three algorit
 
 \subsection{Algorithmic Specification}
 
-The ElGamal KEM is defined by the following algorithms:
+The ElGamal KEM is defined by the following algorithms and explained in section\ref{sec:elgamal}:
 
 \paragraph{Key Generation.}
 \begin{algorithmic}[1]
-\STATE \textbf{Algorithm} $\mathsf{KeyGen}(\mathcal{G}) \rightarrow (pk, sk)$:
+\STATE $\mathsf{KeyGen}(\mathcal{G}) \rightarrow (pk, sk)$:
 \STATE $x \leftarrow \mathbb{Z}_p$ \COMMENT{Sample random secret key}
 \STATE $pk \leftarrow g^x$ \COMMENT{Compute public key}
 \STATE \textbf{return} $(pk, sk) = (g^x, x)$
@@ -21,7 +21,7 @@ The ElGamal KEM is defined by the following algorithms:
 
 \paragraph{Key Encapsulation.}
 \begin{algorithmic}[1]
-\STATE \textbf{Algorithm} $\mathsf{Enc}(pk) \rightarrow (K, C)$:
+\STATE $\mathsf{Enc}(pk) \rightarrow (K, C)$:
 \STATE $r \leftarrow \mathbb{Z}_p$ \COMMENT{Sample random encapsulation exponent}
 \STATE $C \leftarrow g^r$ \COMMENT{Compute ciphertext}
 \STATE $K \leftarrow pk^r$ \COMMENT{Compute session key}
@@ -30,7 +30,7 @@ The ElGamal KEM is defined by the following algorithms:
 
 \paragraph{Key Decapsulation.}
 \begin{algorithmic}[1]
-\STATE \textbf{Algorithm} $\mathsf{Dec}(C, sk) \rightarrow K$:
+\STATE $\mathsf{Dec}(C, sk) \rightarrow K$:
 \STATE \textbf{if} $C \notin \mathcal{G}$ \textbf{then return} $\perp$
 \STATE $K \leftarrow C^{sk}$ \COMMENT{Recover session key}
 \STATE \textbf{return} $K$
@@ -40,7 +40,12 @@ The ElGamal KEM is defined by the following algorithms:
 
 The ElGamal KEM is implemented in EasyCrypt as follows:
 
-\begin{lstlisting}[style=easycrypt, caption=ElGamal KEM Implementation in EasyCrypt, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[
+  style=easycrypt,
+  caption={ElGamal KEM Implementation in EasyCrypt \protect\footnotemark},
+  breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true
+]
+
 (** ElGamal encryption scheme implementation **)
 module ElGamal : Scheme = {
   (* Key generation: sk random, pk = g^sk *)
@@ -63,6 +68,7 @@ module ElGamal : Scheme = {
   }
 }.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L223C1-L243}}
 
 \section{IND-CCA1 Security Model}
 \label{sec:ind-cca1-model}
@@ -71,7 +77,7 @@ Indistinguishability under non-adaptive chosen-ciphertext attacks (IND-CCA1) is 
 
 \begin{definition}[IND-CCA1 Security Game]
 \label{def:ind-cca1-game}
-For a KEM scheme $\mathsf{KEM} = (\mathsf{KeyGen}, \mathsf{Enc}, \mathsf{Dec})$ and adversary $\mathcal{A}$, the IND-CCA1 security game proceeds as follows:
+For a KEM scheme $\mathsf{KEM} = (\mathsf{KeyGen}, \mathsf{Enc}, \mathsf{Dec})$ and adversary $\mathcal{A}$, the IND-CCA1 security game proceeds as follows(detailed explained in section\ref{subsec:indcca}:
 
 \begin{algorithmic}[1]
 \STATE $(pk, sk) \leftarrow \mathsf{KeyGen}()$ \COMMENT{Generate key pair}
@@ -89,7 +95,7 @@ The adversary's advantage is defined as:
 \mathsf{Adv}^{\text{IND-CCA1}}_{\mathsf{KEM}}(\mathcal{A}) = \left| \Pr[\text{IND-CCA1}^{\mathcal{A}}_{\mathsf{KEM}} = 1] - \frac{1}{2} \right|
 \]
 
-In the algebraic group model, the decryption oracle requires adversaries to provide algebraic representations for their queries, ensuring that all ciphertexts can be expressed in terms of previously seen group elements.
+In the algebraic group model, the decryption oracle requires adversaries to provide algebraic representations for their queries, guarantee all ciphertexts can be expressed by previously seen group elements.
 
 \subsection{Relationship to Other Security Notions}
 
@@ -99,15 +105,15 @@ In modern use, IND-CCA1 still occurs in settings where post-challenge oracle acc
 
 \subsection{Algebraic Oracle Implementation}
 
-The key contribution in our formalization is the algebraic oracle that enforces AGM constraints through a two-layer design: interface abstraction and implementation with validation.
+The key component in our formalization is the algebraic oracle that enforces AGM constraints through a two-layer design followed by the insights from paper ~\cite{fuchsbauer2018}: 
 
 \paragraph{Interface Layer: Decryption Oracle Abstraction under AGM.}
 
-We encode the phase-based constraints of the IND-CCA1 game directly into the type and effect system. The decryption oracle interface \texttt{Oracles\_CCA1i} provides initialization \texttt{init} and representation-based decryption \texttt{dec(c, z)}, where vector $z$ represents the algebraic representation of ciphertext group element $c$ relative to the visible base list $l$. The adversary interface \texttt{Adv\_INDCCA1} is decomposed into a ``scouting'' phase \texttt{scout(pk)} (allowing calls to \texttt{O.dec}) and a ``distinguishing'' phase \texttt{distinguish(k, c)} (prohibiting calls to \texttt{O.dec}).
+We encode the phase-based constraints of the IND-CCA1 game directly. The decryption oracle interface \texttt{Oracles\_CCA1i} provides initialization \texttt{init} and representation based decryption \texttt{dec(c, z)}, where vector $z$ represents the algebraic representation of ciphertext group element $c$ relative to the visible base list $l$. The adversary interface \texttt{Adv\_INDCCA1} is decomposed into scout phase \texttt{scout(pk)} (allowing calls to \texttt{O.dec}) and a distinguishing phase \texttt{distinguish(k, c)} (prohibiting calls to \texttt{O.dec}).
 
-This layered abstraction provides two benefits: First, the game rules (decryption allowed before challenge, forbidden after challenge) are enforced through effect annotations at the type level, avoiding the need to manually exclude illegal calls. Second, requiring representation $z$ makes explicit the core assumption of the Algebraic Group Model (AGM)---that adversaries must provide linear/exponential combinations relative to the ``known set'' $l$ for every queried group element, therefore strictly limiting the adversary's accessible information to the linear space generated by $l$ and enabling precise algebraic reasoning in subsequent reductions.
+This layered abstraction provides two benefits: First, the game rules (decryption allowed before challenge, forbidden after challenge) are enforced through effect annotations at the type level, avoiding the need to manually exclude illegal calls. Second, requiring representation $z$ makes explicit the core assumption of the Algebraic Group Model (AGM), that adversaries must provide linear combinations relative to the known ones $l$ for every queried group element.
 
-\begin{lstlisting}[style=easycrypt, caption=Algebraic Oracle Interface, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Algebraic Oracle Interface \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (** Interface for oracles used in CCA1 security games **)
 module type Oracles_CCA1i = {
   proc init(sk_init : sk_t) : unit                    (* Initialize with secret key *)
@@ -120,14 +126,19 @@ module type Adv_INDCCA1 (O : Oracles_CCA1i) = {
   proc distinguish(k : key_t, c : ctxt_t) : bool {}  (* Phase 2: distinguish challenge *)
 }.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L75-L79}}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L170-L173}}
+
+
+
 
 \paragraph{Implementation Layer: Limited Oracle with Query Quota and Representation Validation.}
 
-The module \texttt{O\_CCA1\_Limited} enforces both query quota and representation consistency validation at the implementation level. In \texttt{dec(c, z)} calls, a query is considered valid only when the quota is not exceeded and the condition $c = \texttt{prodEx}(l, z)$ is satisfied. For valid queries, the oracle calls the underlying scheme's decryption algorithm \texttt{S.dec} to obtain the session key and incorporates it into the base list $l$ and query log $qs$, thereby monotonically expanding the adversary's visible linear space. For invalid queries, a placeholder value \texttt{witness} is returned to avoid additional leakage.
+The module \texttt{O\_CCA1\_Limited} enforces query quota and representation consistency validation at the implementation level. In \texttt{dec(c, z)} calls, a query is considered valid only when the quota is not exceeded and the condition $c = \texttt{prodEx}(l, z)$ is satisfied. For valid queries, the oracle calls the underlying scheme's decryption algorithm \texttt{S.dec} to obtain the session key and incorporates it into the base list $l$ and query log $qs$. For invalid queries, a placeholder value \texttt{witness} is returned to avoid additional leakage.
 
-This implementation realizes the minimal principle of ``queryable implies learnable'': adversaries can only incorporate new group elements that are genuinely obtained through valid queries into subsequent representations. Meanwhile, the interface layer already prohibits calling \texttt{dec} after the challenge phase, strictly consistent with IND-CCA1's non-adaptive constraints.
+This implementation represents the minimal principle of ``queryable implies learnable'': adversaries can only incorporate new group elements that are obtained through valid queries into subsequent representations. Meanwhile, the interface layer already prohibits calling \texttt{dec} after the challenge phase, strictly consistent with IND-CCA1's non-adaptive constraints.
 
-\begin{lstlisting}[style=easycrypt, caption=Limited Oracle Implementation with Validation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Limited Oracle Implementation with Validation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (** Limited CCA1 Oracle Implementation **)
 module O_CCA1_Limited (S : Scheme)  : Oracles_CCA1i= {
   var sk : sk_t                                  (* Secret key *)
@@ -165,16 +176,13 @@ module O_CCA1_Limited (S : Scheme)  : Oracles_CCA1i= {
   }
 }.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L120-L154}}
+
 
 \section{q-DDH Assumption}
 \label{sec:q-ddh-assumption}
 
-The q-Decisional Diffie-Hellman (q-DDH) assumption generalizes the standard DDH assumption to handle multiple powers of a secret exponent.
-
-In particular, the \textit{Decisional Diffie--Hellman (DDH)} assumption is one of the fundamental hardness assumptions in public-key cryptography, which states that, given a group generator $g$ and elements $g^x, g^r$, it is computationally infeasible to determine whether a third element is $g^{xr}$ or just a random group element. 
-
-The \textit{q-Decisional Diffie--Hellman (q-DDH)} assumption extends this idea to more structured setting, where the adversary additionally observes multiple powers of the same secret exponent. 
-In particular, even with access to $g^x, g^{x^2}, \ldots, g^{x^q}$, it should be infeasible for any efficient adversary to distinguish a true Diffie-Hellman pair from a randomly generate one~\cite{ddh2015}.
+As we explained the background of q-DDH in the section\ref{sec:part2qddh}, it's main property can be conclude as following sentence: In particular, even with access to $g^x, g^{x^2}, \ldots, g^{x^q}$, it should be infeasible for any efficient adversary to distinguish a true Diffie-Hellman pair from a randomly generate one~\cite{ddh2015}. 
 
 \begin{definition}[q-DDH Problem]
 \label{def:q-ddh-problem}
@@ -192,14 +200,13 @@ For any polynomial-time algorithm $\mathcal{B}$, the q-DDH advantage
 \[
 \mathsf{Adv}^{q\text{-DDH}}_{\mathcal{G}}(\mathcal{B}) = \left| \Pr[\mathcal{B}(\mathcal{D}_0) = 1] - \Pr[\mathcal{B}(\mathcal{D}_1) = 1] \right|
 \]
-is negligible.
 \end{assumption}
 
 \subsection{EasyCrypt Formalization of q-DDH}
 
-The q-DDH game is implemented in EasyCrypt as follows:
+The q-DDH game implemented in EasyCrypt in our work as follows:
 
-\begin{lstlisting}[style=easycrypt, caption=q-DDH Game Implementation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=q-DDH Game Implementation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (** q-DDH adversary interface **)
 module type A_qDDH = {
   proc guess(gtuple : group list) : bool  (* Distinguish q-DDH tuple *)
@@ -237,34 +244,36 @@ module QDDH (A : A_qDDH)  = {
       return b = b';
   }
 }.
+
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L250-L287}}
+
 
 The program first defines the adversary interface \texttt{A\_qDDH}, where the single procedure \texttt{guess(gtuple)} receives a list of group elements and outputs a boolean value, representing the adversary's binary judgment about the source of the input vector.
 
-Subsequently, the main procedure of the game module \texttt{QDDH(A)} is presented. It first declares exponent field elements $x$, $r$, $z$, $b\_int$, a group element list $gtuple$, a single group element $challenge$, and boolean variables $b$, $b'$. The program then independently and uniformly samples from distribution $dt$ to obtain the secret exponent $x$, the random exponent $r$ used for constructing the challenge, and the additional random quantity $z$, and flips a coin to get bit $b$.
+Then, the key part of the game module \texttt{QDDH(A)} is presented. It first declares exponent field elements $x$, $r$, $z$, $b\_int$, a group element list $gtuple$, a single group element $challenge$, and boolean variables $b$, $b'$. The program then independently and uniformly samples from distribution $dt$ to obtain the secret exponent $x$, the random exponent $r$ used for generating the challenge, and the additional random quantity $z$, and flips a coin to get $b$.
 
-The program converts the boolean value $b$ to an element $b\_int$ in the exponent field, following the rule that when $b$ is true, it takes zero, and when $b$ is false, it takes one. Subsequently, it generates the list $gtuple$ using \texttt{map (fun i => g\^(exp x i)) (range 1 (q+1))}, which computes term by term according to the exponential powers $x^1, x^2, \ldots, x^q$ to obtain $[g^x, g^{x^2}, \ldots, g^{x^q}]$.
+The program converts the boolean value $b$ to an element $b\_int$ in the exponent field. Subsequently, it generates the list $gtuple$ using \texttt{map (fun i => g\^(exp x i)) (range 1 (q+1))}, which computes term by term according to the exponential powers $x^1, x^2, \ldots, x^q$ to obtain $[g^x, g^{x^2}, \ldots, g^{x^q}]$.
 
-The challenge element $challenge$ is constructed through an exponential linear combination: $g^{(x \cdot r) + (z \cdot b\_int)}$. Therefore, when $b$ is true ($b\_int = 0$), the challenge is $g^{xr}$, and when $b$ is false ($b\_int = 1$), the challenge is $g^{xr+z}$.
+The challenge element $challenge$ is constructed through: $g^{(x \cdot r) + (z \cdot b\_int)}$. Therefore, when $b$ is true ($b\_int = 0$), the challenge is $g^{xr}$, and when $b$ is false ($b\_int = 1$), the challenge is $g^{xr+z}$.
 
 The complete vector is then concatenated as \texttt{gtuple ++ [g\^{}r] ++ [challenge]}, which appends $g^r$ and the challenge element sequentially after the prefix $[g^x, \ldots, g^{x^q}]$. This string of group elements is passed to the adversary procedure \texttt{A.guess} to obtain output $b'$.
 
-Finally, the game returns the boolean value $b = b'$ as the result of one trial: if the adversary's judgment $b'$ matches the hidden bit $b$, it returns true, indicating that the adversary successfully distinguished in this round; otherwise, it returns false.
+Finally, the game returns the boolean value $b = b'$ as the result of one trial: if the adversary's judgment $b'$ matches the hidden bit $b$, it returns true, represents that the adversary successfully distinguished; otherwise, returns false.
 
-Overall, this process implements: sampling key-related vectors and a challenge element controlled by a bit, passing them to the adversary to make a guess, and using whether the adversary guesses correctly as the output of this round of the game.
 
 \section{Mathematical Foundations}
 \label{sec:mathematical-foundations}
 
-Our formalization builds upon a comprehensive linear algebra library that enables precise manipulation of algebraic representations while maintaining faithful correspondence with group operations.
-These mathematical structures are fully implemented and verified within the \textsc{EasyCrypt} proof assistant, giving a machine-checked foundation for the algebraic reasoning used in subsequent sections.
-\subsection{Core Linear Algebra Library}
+Our formalization builds upon a linear algebra framework that enables manipulation of algebraic representations in our entire work while preserve accurate correspondence with group operations.
+These mathematical structures are fully implemented and verified within the \textsc{EasyCrypt} proof assistant, giving a machine-checked foundation for the algebraic reasoning used in subsequent proof.
+\subsection{Core Linear Algebra Components}
 
-The heart of our approach lies in a comprehensive library for manipulating linear combinations in the exponent field while maintaining consistency with group operations.
+The heart of our approach will indicated below in EasyCrypt format for manipulating linear combinations in the exponent field while maintaining consistency with group operations.
 
-\paragraph{Basic Group Operations.}
+\subsubsection{Basic Group Operations.}
 
-\begin{lstlisting}[style=easycrypt, caption=Basic Group Operations, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Basic Group Operations \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Product of a list of group elements *)
 op prod (elements : group list) = foldr ( * ) e elements.
 
@@ -277,15 +286,18 @@ op prodEx (bases : group list)(exps : exp list) =
   prod (ex bases exps).
 \end{lstlisting}
 
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L83-L91}}
+
+
 The \texttt{prodEx} operator is our core abstraction, computing:
 \[
 \mathsf{prodEx}(\mathbf{g}, \mathbf{a}) = \prod_{i=0}^{n-1} g_i^{a_i}
 \]
 where $\mathbf{g} = (g_0, g_1, \ldots, g_{n-1})$ and $\mathbf{a} = (a_0, a_1, \ldots, a_{n-1})$.
 
-\paragraph{Vector Operations in the Exponent Field.}
+\subsubsection{Vector Operations in the Exponent Field.}
 
-\subparagraph{Zero Vector (\texttt{zerov})}
+\paragraph{Zero Vector (\texttt{zerov})}
 
 The zero vector operation creates a vector of length $q+1$ filled with zero elements:
 
@@ -293,16 +305,18 @@ The zero vector operation creates a vector of length $q+1$ filled with zero elem
 \texttt{zerov} = \underbrace{[0, 0, \ldots, 0]}_{q+1 \text{ elements}}
 \end{equation}
 
-\begin{lstlisting}[style=easycrypt, caption=Zero Vector Definition, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Zero Vector Definition \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Zero vector of length q+1 *)
 op zerov = nseq (q+1) zero.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L316}}
+
 
 This serves as the additive identity for vector operations and the initial value for vector accumulation.
 
-\subparagraph{Vector Addition (\texttt{addv})}
+\paragraph{Vector Addition (\texttt{addv})}
 
-Vector addition performs pointwise addition of corresponding elements from two vectors:
+Vector addition enables pointwise addition of corresponding elements from two vectors:
 
 \begin{equation}
 \texttt{addv}(a, b) = [a_1 + b_1, a_2 + b_2, \ldots, a_n + b_n]
@@ -310,31 +324,34 @@ Vector addition performs pointwise addition of corresponding elements from two v
 
 where $a = [a_1, a_2, \ldots, a_n]$ and $b = [b_1, b_2, \ldots, b_n]$.
 
-\begin{lstlisting}[style=easycrypt, caption=Vector Addition, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Vector Addition \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Vector addition: pointwise addition *)
 op addv (a b : exp list) = 
   map (fun (x : exp * exp) => x.`1 + x.`2) (zip a b).
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L319}}
 
-This operation is commutative and associative, forming the basis for linear combinations of algebraic representations.
 
-\subparagraph{Vector Multiplication (\texttt{mulv})}
+This operation is commutative and associative, forming the basis for linear combinations.
 
-Vector multiplication performs pointwise (Hadamard) multiplication of corresponding elements:
+\paragraph{Vector Multiplication (\texttt{mulv})}
+
+Vector multiplication serve as pointwise ultiplication of corresponding elements:
 
 \begin{equation}
 \texttt{mulv}(a, b) = [a_1 \cdot b_1, a_2 \cdot b_2, \ldots, a_n \cdot b_n]
 \end{equation}
 
-\begin{lstlisting}[style=easycrypt, caption=Vector Multiplication, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Vector Multiplication \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Vector multiplication: pointwise multiplication *)
 op mulv (a b : exp list) = 
   map (fun (x : exp * exp) => x.`1 * x.`2) (zip a b).
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L322}}
 
 This operation is used for combining exponent vectors when computing products of group elements.
 
-\subparagraph{Scalar Multiplication (\texttt{scalev})}
+\paragraph{Scalar Multiplication (\texttt{scalev})}
 
 Scalar multiplication multiplies each element of a vector by a scalar value:
 
@@ -344,14 +361,15 @@ Scalar multiplication multiplies each element of a vector by a scalar value:
 
 where $s$ is a scalar and $a = [a_1, a_2, \ldots, a_n]$.
 
-\begin{lstlisting}[style=easycrypt, caption=Scalar Multiplication, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Scalar Multiplication \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Scalar multiplication: multiply vector by scalar *)
 op scalev (a : exp list)(b : exp) = map (fun x => x*b) a.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L325}}
 
-This operation enables scaling of algebraic representations, crucial for constructing linear combinations in AGM proofs.
+This operation enables scaling of algebraic representations, crucial for constructing linear combinations in this work.
 
-\subparagraph{Vector Sum (\texttt{sumv})}
+\paragraph{Vector Sum (\texttt{sumv})}
 
 Vector sum computes the sum of a list of vectors using fold-right with vector addition:
 
@@ -361,14 +379,15 @@ Vector sum computes the sum of a list of vectors using fold-right with vector ad
 
 where each $v_i$ is a vector and $+$ denotes vector addition (\texttt{addv}).
 
-\begin{lstlisting}[style=easycrypt, caption=Vector Sum, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Vector Sum \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Sum of vectors: fold addition over list of vectors *)
 op sumv (a : exp list list) = foldr addv zerov a.
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L328}}
 
 This operation aggregates multiple algebraic representations into a single representation, essential for oracle simulation.
 
-\subparagraph{Shift and Truncate (\texttt{shift\_trunc})}
+\paragraph{Shift and Truncate (\texttt{shift\_trunc})}
 
 The shift and truncate operation prepends a zero to the vector and then takes the first $q+1$ elements:
 
@@ -378,16 +397,17 @@ The shift and truncate operation prepends a zero to the vector and then takes th
 
 This ensures the result has exactly $q+1$ elements, maintaining consistent vector dimensions.
 
-\begin{lstlisting}[style=easycrypt, caption=Shift and Truncate Operation, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
+\begin{lstlisting}[style=easycrypt, caption=Shift and Truncate Operation \protect\footnotemark, breaklines=true, breakatwhitespace=true, frame=single, keepspaces=true]
 (* Shift and truncate operation for oracle simulation *)
 op shift_trunc (v : exp list) = take (q+1) (zero :: v).
 \end{lstlisting}
+\footnotetext{code link :\url{https://github.com/GuSheldom/INDCCA-QDDH/blob/main/INDCCA.ec\#L331}}
 
 This operation is particularly important in oracle simulation where new group elements must be incorporated into the existing algebraic representation while maintaining the proper dimensionality for the $q$-DDH structure.
 
-\paragraph{Key Algebraic Properties and Lemmas}
+\subsection{Key Algebraic Properties and Lemmas}
 
-The correctness of our reduction relies on several fundamental algebraic properties that we establish through formal lemmas. These lemmas are essential for the oracle simulation and reduction construction.
+The correctness of our reduction relies on several fundamental algebraic properties and lemmas shows below, which are essential for our work.
 
 \begin{lemma}[Linear Distributivity for prodEx]
 \label{lem:prodex-addv-distributive}
@@ -453,6 +473,23 @@ Products with empty vectors yield the identity:
 \end{align}
 \end{lemma}
 \noindent \textit{Proof:}  Section~\ref{sec:zero-vector-proofs}.
+
+
+\begin{lemma}[Prodex size less or equal]
+\label{lem:prodex-sizele}
+When the exponent vector is longer than the base list, the product only depends on the prefix matching the base list length:
+\begin{align}
+\mathsf{prodEx}(bases, exps) &= \mathsf{prodEx}(bases, \mathsf{take}(|bases|, exps)) 
+\quad \text{when } |exps| \geq |bases|
+\end{align}
+
+Equivalently, oversized exponents beyond the base list size are ignored:
+\begin{align}
+\prod_{i=0}^{n-1} g_i^{e_i} &= \prod_{i=0}^{n-1} g_i^{e_i} 
+\quad \text{when } |[e_0, e_1, \ldots, e_m]| \geq n \text{ and } m \geq n
+\end{align}
+\end{lemma}
+\noindent \textit{Proof:}  Section~\ref{sec:prodex-sizele-proofs}.
 
 \begin{lemma}[Vector Addition with Empty Operands]
 \label{lem:addv-nil}
@@ -549,9 +586,21 @@ g :: \text{map}(\lambda i \rightarrow g^{sk^i}, \text{range}(1, q+1)) = \text{ma
 
 \begin{lemma}[Ex Cons Distribution]
 \label{lem:ex-cons-general}
-For group element $x$, group list $xs$, exponent $e$, and exponent list $es$:
+or group element $x$, group list $xs$, exponent $e$, and exponent list $es$:
 \[
 \mathsf{ex}(x :: xs, e :: es) = (x^e) :: \mathsf{ex}(xs, es)
+\]
+
+\end{lemma}
+\noindent \textit{Proof:} See Section~\ref{sec:sumv-cons-proofs}.
+
+
+\begin{lemma}[Sumv Cons Distribution]
+\label{lem:sumv-cons-general}
+F
+to adding the first element to the sum of the remaining elements, we can get:
+\[
+\sum_{i=0}^{n} v_i = v_0 + \sum_{i=1}^{n} v_i
 \]
 \end{lemma}
 \noindent \textit{Proof:} See Section~\ref{sec:ex-cons-proofs}.

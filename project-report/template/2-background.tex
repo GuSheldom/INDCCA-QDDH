@@ -1,0 +1,443 @@
+\chapter{Background}\label{chap:background}
+
+
+
+This chapter shows the cryptographic foundations and formal verification 
+framework of this work. We will first show an overview of cryptographic computational models, present the specific security definitions and cryptographic primitives, and introduce the EasyCrypt proof assistant used for mechanization.
+
+
+\section{Cryptographic Computational Models}
+\label{sec:crypto-models}
+
+Here are the explanation and the instances of some important models:
+
+\subsection{The Standard Model}
+\label{subsec:sm}
+The \emph{standard model} is the most fundamental approach, imposing 
+minimal constraints which refers to the computational framework where the adversary is assumed to be bounded only by the computational feasibility. In particular, adversaries of standard model are modeled as probabilistic polynomial-time (PPT) algorithms 
+that can perform any computation executed within polynomial time~\cite{okamoto2007}. In other words, the standard 
+model provides the strongest guarantees due to there is no idealized assumptions about cryptographic primitives or mathematical structures. As a result, it is challenging to provide formal proof using standard model for schemes like ElGamal~\cite{Sven2024}.
+
+\subsection{Idealized Models}
+\label{subsec:im}
+To enable security proofs for practical schemes, cryptographers have developed various \emph{idealized models} that provides additional structure on adversarial capabilities as ideal objects, for instance:
+
+\begin{itemize}
+\item \textbf{Random Oracle Model (ROM)}~\cite{bellare1993}: Hash functions are modeled as truly random functions accessible only through oracle queries. This model enable us to simplify the proofs of many practical schemes, but introduces assumptions that do not hold in real hash function implementations.
+
+
+\item \textbf{Generic Group Model (GGM)}~\cite{shoup1997}: In this model, adversaries can only interact with group elements through a generic interface that does not reveal any information about the specific representation of the group elements. While this model captures certain intuitive assumptions about computational hardness, it is generally often considered overly restrictive, in real world, real adversaries may exploit specific structure of group representations to attack.
+\end{itemize}
+
+
+\subsection{Algebraic Group Model}
+\label{sec:agm-background}
+
+The Algebraic Group Model (AGM), introduced by Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018}, provides a framework for analyzing cryptographic schemes by restricting adversaries to be "algebraic." As we mentioned in the section~\ref{sec:motivate}, this model provides a intermediate ground between two models mentioned above.
+
+In particular, instead of assuming an all-powerful attacker, the AGM will restricts adversaries to be algebraic, meaning that whenever they generate a new group element, they must also explain how it was algebraically derived from elements they have already seen~\cite{cong2022}. 
+
+This model indicates the intuition that real cryptographic algorithms operate through concrete algebraic operations, rather than arbitrary black-box calculations, allowing proofs to achieve a balance between realistic and easy to formalize.
+
+\begin{definition}[Algebraic Adversary]
+\label{def:algebraic-adversary}
+An adversary $\mathcal{A}$ is algebraic if, whenever it outputs a group element $h \in \mathcal{G}$, it also provides a representation vector $\mathbf{z} = (z_1, \ldots, z_k) \in \mathbb{Z}_p^k$ such that:
+\[
+h = \prod_{i=1}^k g_i^{z_i}
+\]
+where $g_1, \ldots, g_k$ are all group elements that $\mathcal{A}$ has seen so far.
+\end{definition}
+
+
+\begin{assumption}[AGM Assumption]
+\label{ass:agm}
+All adversaries are algebraic in the sense of Definition~\ref{def:algebraic-adversary}.
+\end{assumption}
+
+This assumption is particularly well-suited for analyzing discrete logarithm-based schemes like ElGamal, as it captures the natural algebraic structure that such schemes possess while remaining weaker than the generic group model. As a result, it is crucial for our work as it allows to construct a oracle simulator which can preserve the consistency when answering the adversaries without access to the secret key, enables the reduction can be fully mechanized in the EasyCrypt.
+
+
+
+\section{Public key cryptography}
+\label{sec:background1}
+Public-key cryptography forms the foundation of modern secure cryptographic systems, enabling the confidential exchange of information over untrusted networks. Among its fundamental security notions, Key Encapsulation Mechanisms (\KEM) play a crucial role in constructing shared symmetric keys for subsequent encrypted communication\cite{Sharifian2021}. 
+
+
+
+\subsection{Key Encapsulation Mechanisms}
+
+A Key Encapsulation Mechanism consists of three algorithms~\cite{ga2012}:
+\begin{itemize}
+\item $\text{Gen}(1^\lambda) \rightarrow (pk, sk)$: Generates a public key 
+$pk$ and secret key $sk$ pair.
+\item $\text{Enc}(pk) \rightarrow (K, C)$: Takes a public key and outputs a randomly chosen session key $K$ and encapsulation $C$.
+\item $\text{Dec}(C, sk) \rightarrow K$: Decrypts a encapsulation $C$ using secret key $sk$ to recover the session key $K$ or fails.
+\end{itemize}
+
+
+
+
+
+
+
+\subsection{Indistinguishability under non-adaptive chosen-ciphertext attack (IND-CCA1 Security)}
+\label{subsec:indcca}
+
+To preserve secure against active attackers,that require strong security guarantees, with indistinguishability under chosen-ciphertext attacks (IND-CCA) being among the most demanding and practically relevant.
+The \INDCCAone variant, where adversaries have access to a decryption oracle only before seeing the challenge ciphertext, reflects many real-world attack scenarios while remaining trackable for theoretical analysis.
+
+
+Formally, the IND-CCA1 security game $\text{ind-cca1}^A_{\text{KEM},par,b}$ 
+for a KEM = (Gen, Enc, Dec) with parameters $par$ and adversary $\mathcal{A}$ 
+proceeds in three phases~\cite{fuchsbauer2018}:
+
+\begin{enumerate}
+\item \textbf{Setup Phase}: The challenger generates $(pk, sk) \xleftarrow{\$} \text{Gen}(par)$ 
+and provides $pk$ to the adversary.
+
+\item \textbf{Query Phase}: The adversary $\mathcal{A}$ makes queries to the 
+decryption oracle $\text{Dec}(C)$, which computes $K \xleftarrow{\$} \text{Dec}(C, sk)$ 
+and returns $K$ (or $\perp$ if $C$ is invalid). Note that this oracle is only available 
+\emph{before} the challenge phase.
+
+\item \textbf{Challenge Phase}: The adversary invokes the encryption oracle 
+$\text{Enc}()$ exactly once. The challenger will:
+    \begin{itemize}
+    \item Computes $(K_0^*, C^*) \xleftarrow{\$} \text{Enc}(pk)$ (real session key)
+    \item Samples $K_1^* \xleftarrow{\$} \mathcal{K}$ (random key from key space)
+    \item Returns $(K_b^*, C^*)$ where $b$ is the secret challenge bit
+    \end{itemize}
+    
+\item \textbf{Output}: The adversary outputs a guess $b'$ and wins if $b' = b$.
+\end{enumerate}
+
+The adversary's \emph{advantage} is defined as:
+\[
+\text{Adv}^{\text{IND-CCA1}}_{\text{KEM}}(\mathcal{A}) = 
+\left|\Pr[b' = b] - \frac{1}{2}\right|
+\]
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{The ElGamal Cryptosystem}
+\label{sec:elgamal}
+
+The ElGamal cryptosystem is a fundamental establishment of public-key cryptography~\cite{elgamal1985}.
+The basic ElGamal operates in a cyclic group $\mathcal{G}$ of prime order $p$ with generator $g$. The scheme generates a key pair by selecting a random secret exponent $x \leftarrow \mathbb{Z}_p$ and computing the public 
+key as $X = g^x$. Encryption of a message $m$ involves choosing a random 
+$r \leftarrow \mathbb{Z}_p$ and computing the ciphertext as $(C_1, C_2) = 
+(g^r, m \cdot X^r)$. Decryption recovers $m = C_2 / C_1^x$.
+
+The ElGamal-based KEM, derived from the classical ElGamal construction, bases its security on the discrete logarithm problem in cyclic groups\cite{Sven2024}. While ElGamal in its original public-key encryption form achieves only IND-CPA security~\cite{pandey2021}, its KEM formulation enables stronger guarantees when analyzed under appropriate computational assumptions\cite{Sven2024}. It can be devided into three phases~\cite{fuchsbauer2018}:
+
+
+
+\begin{itemize}
+\item $\text{Gen}(\mathcal{G})$: Choose $x \leftarrow \mathbb{Z}_p$ uniformly 
+at random. Set $X := g^x$. Return $(pk, sk) := (X, x)$.
+
+\item $\text{Enc}(pk)$: Choose $r \leftarrow \mathbb{Z}_p$ uniformly 
+at random. Compute 
+$C := g^r$ and $K := X^r = g^{xr}$. Return $(K, C)$.
+
+\item $\text{Dec}(C, sk)$: If $C \notin \mathcal{G}$ return $\perp$. 
+Otherwise compute $K := C^x$ and return $K$.
+\end{itemize}
+
+Correctness follows from $C^x = (g^r)^x = g^{rx} = g^{xr} = X^r = K$.
+
+
+
+
+
+
+\section{IND-CCA1 Security Game for ElGamal.} 
+\label{sec:elgamalcca}
+
+The indistinguishability under chosen-ciphertext attacks (IND-CCA1) security game for ElGamal \KEM proceeds as follows: The challenger first introduce a key pair $\text{Gen}(par)\rightarrow(pk,sk)$ where $pk = g^x$ and $sk = x$ for a randomly chosen $x \leftarrow \mathbb{Z}_p$. Then, the adversary $A$ is given the public key $pk$ and then make decryption queries to a oracle $\text{Dec}(C, sk)$ that returns $K = C^x$ for valid ciphertexts $C \in \mathcal{G}$. At some point, the adversary requests a challenge by calling the encryption oracle only once. The challenger computes $ \text{Enc}(pk)\rightarrow(K_0^*, C^*)$ where $C^* = g^r$ and $K_0^* = (g^x)^r = g^{xr}$ for a  random $ \mathbb{Z}_p \rightarrow r$, then selects a random key $ \mathcal{K} \rightarrow K_1^*$, and finally return $(K_b^*, C^*)$ for a random bit $b$. Finally, The adversary will outputs a guess $b'$ and wins if $b' = b$.
+
+The algorithm specification from paper\cite{fuchsbauer2018} is detailed in Figure~\ref{fig:indcca1-algorithm}.
+
+\begin{figure}[H]
+\centering
+\footnotesize
+\begin{tabular}{|p{15cm}|}
+\hline
+\multicolumn{1}{|c|}{\textbf{IND-CCA1$_{\text{EG},\mathcal{G}}^A$ Security Game for ElGamal}} \\
+\hline
+\textbf{Algorithm:} \\
+00 $x \leftarrow \mathbb{Z}_p$ \\
+01 $X := g^x$ \\
+02 $b' \leftarrow A^{\text{Dec},\text{Enc}}(X)$ \\
+03 Return $b'$ \\
+\hline
+\textbf{Oracles Available to Adversary } $A$\textbf{:} \\
+$\bullet$ \textbf{Dec}$(C)_a$ // Before Enc is called \\
+\phantom{$\bullet$} 04 If $C \notin \mathcal{G}$ Return $\perp$ \\
+\phantom{$\bullet$} 05 $K := C^x$ \\
+\phantom{$\bullet$} 06 Return $K$ \\
+\\
+$\bullet$ \textbf{Enc}$()$ // One time only \\
+\phantom{$\bullet$} 07 $r \leftarrow \mathbb{Z}_p$ \\
+\phantom{$\bullet$} 08 $C^* := g^r$ \\
+\phantom{$\bullet$} 09 $K^* := X^r$ \\
+\phantom{$\bullet$} 10 $K_1^* \leftarrow \mathcal{K}$ // random key \\
+\phantom{$\bullet$} 11 $b \leftarrow \{0,1\}$ \\
+\phantom{$\bullet$} 12 Return $(K_b^*, C^*)$ \\
+\hline
+\textbf{ElGamal KEM Operations:} \\
+$\bullet$ \textbf{Gen}$(\mathcal{G}) \rightarrow (pk, sk)$: $x \leftarrow \mathbb{Z}_p$; $X := g^x$; Return $(X, x)$ \\
+$\bullet$ \textbf{Enc}$(pk) \rightarrow (K, C)$: $r \leftarrow \mathbb{Z}_p$; $C := g^r$; $K := pk^r$; Return $(K, C)$ \\
+$\bullet$ \textbf{Dec}$(C, sk) \rightarrow K$: If $C \notin \mathcal{G}$ Return $\perp$; $K := C^{sk}$; Return $K$ \\
+\hline
+\textbf{Advantage Definition:} \\
+$\mathsf{Adv}^{\text{IND-CCA1}}_{\text{ElGamal}}(A) = \left|\Pr[b' = b] - \frac{1}{2}\right|$ \\
+where $b$ is the random bit used in the Enc oracle \\
+\hline
+\textbf{Security Goal:} \\
+Adversary $A$ should not be able to distinguish between $K_0^* = g^{xr}$ (real key) and $K_1^*$ (random key) \\
+even with access to decryption oracle before receiving the challenge $(K_b^*, C^*)$ \\
+\hline
+\end{tabular}
+\caption{IND-CCA1 security game for ElGamal encryption. The adversary has access to a decryption oracle before the challenge phase, then must distinguish between a real session key and a random key.}
+\label{fig:indcca1-algorithm}
+\end{figure}
+
+
+
+
+
+
+
+\section{q-Decisional Diffie-Hellman (q-DDH) Problem.} 
+\label{sec:part2qddh}
+
+The q-Decisional Diffie-Hellman (q-DDH) assumption generalizes the standard DDH assumption to handle multiple powers of a secret exponent.
+
+In particular, the \textit{Decisional Diffie--Hellman (DDH)} assumption is one of the fundamental hardness assumptions in public-key cryptography, which states that, given a group generator $g$ and elements $g^x, g^r$, it is computationally infeasible to determine whether a third element is $g^{xr}$ or just a random group element. 
+
+The \textit{q-Decisional Diffie--Hellman (q-DDH)} assumption extends this idea to more structured setting, where the adversary additionally observes multiple powers of the same secret exponent. 
+
+The q-DDH problem will ask one to distinguish between two distributions over group elements. 
+By given a tuple $(g^x, g^{x^2}, \ldots, g^{x^q}, g^r, T)$ where $x, r \leftarrow \mathbb{Z}_p$ are random, the attacker must determine whether $T = g^{xr}$ (real distribution) or $T = g^{xr+z}$ for a random $z \leftarrow \mathbb{Z}_p$ (random distribution).
+
+The specification from paper\cite{fuchsbauer2018} is detailed below in Figure~\ref{fig:qddh-algorithm}.
+
+
+\begin{figure}[H]
+\centering
+\footnotesize
+\begin{tabular}{|p{15cm}|}
+\hline
+\multicolumn{1}{|c|}{\textbf{q-DDH$_{\mathcal{G},q}^A$ Problem}} \\
+\hline
+\textbf{Algorithm:} \\
+00 $x, r, z \leftarrow \mathbb{Z}_p$ \\
+01 $b \leftarrow \{0,1\}$ \\
+02 $T_0 := g^{xr}$, $T_1 := g^{xr+z}$ \\
+03 $b' \leftarrow A(g^x, g^{x^2}, \ldots, g^{x^q}, g^r, T_b)$ \\
+04 Return $b'$ \\
+\hline
+\textbf{Challenge Structure Given to Distinguisher } $A$\textbf{:} \\
+$\bullet$ \textbf{Powers of } $x$: $(g^x, g^{x^2}, g^{x^3}, \ldots, g^{x^q})$ \\
+$\bullet$ \textbf{Random element:} $g^r$ where $r \leftarrow \mathbb{Z}_p$ \\
+$\bullet$ \textbf{Target element:} $T \in \{g^{xr}, g^{xr+z}\}$ where $z \leftarrow \mathbb{Z}_p$ \\
+\hline
+\textbf{Distinguishing Goal:} \\
+$\bullet$ \textbf{Real distribution } $\mathcal{D}_0$: $T = g^{xr}$ (DDH tuple) \\
+$\bullet$ \textbf{Random distribution } $\mathcal{D}_1$: $T = g^{xr+z}$ (random element) \\
+\\
+Distinguisher $A$ must output a bit $b'$ indicating which distribution the challenge comes from \\
+\hline
+\textbf{Advantage Definition:} \\
+$\mathsf{Adv}^{q\text{-DDH}}_{\mathcal{G}}(A) = \left|\Pr[A(\mathcal{D}_0) = 1] - \Pr[A(\mathcal{D}_1) = 1]\right|$ \\
+where $\mathcal{D}_0 = (g^x, g^{x^2}, \ldots, g^{x^q}, g^r, g^{xr})$ \\
+and $\mathcal{D}_1 = (g^x, g^{x^2}, \ldots, g^{x^q}, g^r, g^{xr+z})$ \\
+\hline
+\textbf{Hardness Assumption:} \\
+For any probabilistic polynomial-time algorithm $A$: \\
+$\mathsf{Adv}^{q\text{-DDH}}_{\mathcal{G}}(A) \leq \text{negl}(\lambda)$ \\
+\\
+The q-DDH assumption states that even given the first $q$ powers of $x$, \\
+it remains computationally hard to distinguish $g^{xr}$ from $g^{xr+z}$ \\
+\hline
+\textbf{Relationship to Standard DDH:} \\
+$\bullet$ Standard DDH: Given $(g^a, g^b, g^c)$, distinguish $c = ab$ from random $c$ \\
+$\bullet$ q-DDH: Given $(g^x, \ldots, g^{x^q}, g^r, T)$, distinguish $T = g^{xr}$ from $T = g^{xr+z}$ \\
+$\bullet$ q-DDH $\Rightarrow$ DDH but the converse may not hold \\
+\hline
+\end{tabular}
+\caption{q-DDH (q-Decisional Diffie-Hellman) problem. The distinguisher receives the first $q$ powers of a secret exponent $x$ along with $g^r$ and must distinguish between $g^{xr}$ and $g^{xr+z}$ for random $z$.}
+\label{fig:qddh-algorithm}
+\end{figure}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{The Bilateral Equivalence}
+\label{sec:bilateral-equiv}
+% ==============================================================================
+
+Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018} constructs a bilateral 
+equivalence between the IND-CCA1 security of ElGamal-based \KEM\ and the q-DDH 
+assumption in the Algebraic Group Model. This equivalence indicates that breaking 
+the IND-CCA1 security of ElGamal \KEM\ is computationally equivalent to handling
+the q-DDH problem, where adversaries are restricted to be algebraic.
+
+
+Intuitively, \INDCCAone allows the adversary to query a decryption oracle a limited number of times before receiving a single challenge ciphertext, but still requires that the adversary cannot distinguish a real session key from a random key. Additionally,  \qDDH problem asks that, for any adversary obtains certain group elements corresponding to powers of a secret exponent, still unable to distinguish whether a given element corresponds to a true Diffie–Hellman product or to random generated. 
+
+In the algebraic group setting, we are required trace adversarial group elements through their linear relations to known generators, which allows for constructing verifiable oracle responses. This technique enable us mechanized correspondence between the two security game frameworks.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+% ==============================================================================
+\section{Formal Verification}
+\label{sec:formal-verification}
+% ==============================================================================
+
+Formal verification is the leverage of mathematical mechanisms to ensure that a design conforms to some precisely expressed notion of functional correctness. Concretely, given (1) a model of a system, (2) a description of the environment that the system is supposed to operate in, and (3) properties that the system is intended to fulfill, formal verification can be used to search for scenarios that violate the properties and proving that the properties always hold when no such violations exist~\cite{bjesse2005}.
+
+\subsection{General Formal Verification Process}
+
+Recent progress in computer-aided cryptography highlights that a general formal verification process can be applied to real-world cryptographic systems. Given a scheme's specification and (hand-written) security proof, this process allows us to formally verify both the scheme and its implementations. While the process does not depend on any specific tools, the choice of tool may significantly impact the difficulty, depending on factors such as the properties to verify or the type of proof used~\cite{barbosa2024formal}. In our works, we select EasyCrypt to formalize the equivalence. We mainly foucus on formalizing 
+the bilateral reduction between IND-CCA1 and q-DDH from~\cite{fuchsbauer2018}, and verifying that the reduction correctly establishes the equivalence between the two problems using the formal verification.
+
+
+
+
+
+
+
+\section{The EasyCrypt Verification Framework}
+\label{sec:easycrypt-framework}
+
+EasyCrypt is a formal verification framework specifically developed for verifying the security of cryptographic designs~\cite{barbosa2024formal}.In particular, it specializes in formalizing and verifying security proofs for cryptographic constructions through rigorous mathematical reasoning. The core of EasyCrypt is its Probabilistic Relational Hoare Logic (pRHL), which is used extensively thorough our bilateral equivalence formalization to build exact correspondences while preserving control over probabilistic reasoning~\cite{Bar2012}.
+
+While EasyCrypt's standard reasoning strategies handle the majority of our proof obligations, certain technical steps in our bilateral reduction requires more complex approaches that require global program analysis and explicit management of algebraic relationships  including randomness-preserving transformations and complex oracle simulations. EasyCrypt addresses these requirements through specialized reasoning techniques and transformation rules.
+
+In our work, the formal verification process includes over 2000 lines of verified EasyCrypt code, representing a substantial mechanizations of AGM-style. The formalisation not only enhances confidence in the soundness of our proof but also lays the groundwork for future developments in my future study in mechanised cryptography.
+
+
+\subsection{Core Concepts}
+
+EasyCrypt operates on several key principles that make it particularly suitable for formal verification of cryptographic analysis:
+
+\paragraph{Probabilistic Relational Hoare Logic (pRHL).} EasyCrypt's core aspect is probabilistic Relational Hoare Logic (pRHL), which enables reasoning about relationships between probabilistic programs~\cite{Bar2012}. In our context, pRHL allows us to establish probability equalities between different cryptographic games, such as:
+\[
+\Pr[\text{IND\_CCA1\_P}(\text{ElGamal}, B).\text{main}() : \text{res}] = \Pr[\text{QDDH}(A_{\text{from\_INDCCA1}}(B)).\text{main}() : \text{res}]
+\]
+
+\paragraph{Game Transformations.} EasyCrypt provides several powerful tactics for transforming games while preserving their probability distributions:
+
+\begin{itemize}
+\item \textbf{byequiv transformations}: These are built upon pRHL and allow us to prove that two games have identical probability distributions by establishing a relational invariant between their executions.
+
+\item \textbf{bypr transformations}: These enable reasoning about probability bounds and are particularly useful for establishing security reductions.
+
+\item \textbf{rnd transformations}: These are pRHL-based tactics for reasoning about randomness. For example, in our proof we use:
+\begin{lstlisting}[style=easycrypt, basicstyle=\footnotesize\ttfamily]
+rnd (fun k' => loge k' - sk0{1} * y{1}) 
+    (fun z => g ^ (z + sk0{1} * y{1})).
+\end{lstlisting}
+This transformation converts randomness from group elements to the exponent field, making the two games probabilistically equivalent.
+\end{itemize}
+
+\paragraph{Oracle Simulation.} EasyCrypt excels at reasoning about oracle-based security games. In our work, pRHL is crucial for:
+\begin{itemize}
+\item \textbf{Correctness}: Ensuring that simulated oracles produce the same outputs as real oracles for valid queries
+\item \textbf{State Management}: Tracking the evolution of oracle state across game executions  
+\item \textbf{Query Validation}: Verifying that adversarial queries satisfy the required algebraic constraints
+\end{itemize}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

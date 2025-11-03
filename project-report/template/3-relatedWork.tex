@@ -1,0 +1,131 @@
+\chapter{Related Work}\label{chap:relatedWork}
+Our work lies in the intersection of three research areas: the Algebraic Group Model in cryptography, formal verification of cryptographic proofs using EasyCrypt, and \KEM Security and ElGamal. In this chapter we review relevant work in each area and position our contributions.
+
+
+\section{Formal Verification of Cryptographic Proofs using EasyCrypt}
+Formal verification of cryptographic security arguments has grown significantly in recent years, driven by the practical needs for 
+high-assurance cryptography.
+
+\paragraph{EasyCrypt Framework.}
+EasyCrypt~\cite{easycrypt} is a proof assistant specialized for reasoning about cryptographic security proofs using game-based arguments. Its core logic, Probabilistic Relational Hoare Logic (pRHL)~\cite{Bar2012}, enables precise reasoning about probabilistic equivalences between games. 
+
+Major applications of EasyCrypt include:
+
+EasyCrypt has been successfully applied to verify post-quantum schemes based on lattice assumptions. Hülsing, Meijers, and Strub~\cite{hulsing2022} formalized the IND-CPA security and $\delta$-correctness of Saber's public-key encryption scheme, establishing the properties required to transform it into an IND-CCA2 secure KEM. Their methodology introduce hand-written proofs first, then mechanizing them in EasyCrypt. In our work, we inspired from the work based on the original paper proof from paper~\cite{fuchsbauer2018}, and provides the formal verification.
+
+
+
+
+
+
+
+
+
+
+More recently, Almeida et al.~\cite{kyber2024} provided a complete formalization of ML-KEM (Kyber), containing IND-CCA security and correctness, indicating one of the largest EasyCrypt formalizations. In particular, they introduce the formalization of formalization of the base Kyber PKE's correctness and IND-CPA security, provides formalization of the Fujisaki-Okamoto transform in the Random Oracle Model and give proof that ML-KEM's IND-CCA security and correctness as a KEM. This work represents one of most complete formalization to our knowledge, providing from high-level security theorems to verified implementations, this work indicates the capability of the easycrypt for end-to-end verification.
+
+Additionally, Barbosa et al.~\cite{Manuel2024} provide a formally verified tight security proof for SPHINCS+ (standardized by NIST as SLH-DSA), a hash-based post-quantum signature scheme. This work handles a critical gap: the original tight security proofs for SPHINCS+ contained flaws discovered by Kudinov et al.~\cite{hulsing2020sphincs}. The formalization reconstructs the corrected proof of Hülsing and Kudinov~\cite{cryptoeprint:2022/778} in a modular fashion within EasyCrypt. Notably, they formalizes a complex argument with four different security games simultaneously, a reasoning pattern not previously addressed in EasyCrypt (to the authors' knowledge). To handle this challenge, they develop a general formal verification framwork for similar multi-game arguments. 
+
+\paragraph{Relationship to Our Work.}
+These three related work all show the potential and capability of using EasyCrypt to formalize and verify the paper proof, although the formalization challenges is quite similar: substantial infrastructure development (lattice/hash operations vs. algebraic representations), it require us to careful management of size constraints and index bounds, and making explicit the reasoning steps that are often left implicit in paper proofs. The EasyCrypt's pRHL and game transformation tactics make it particularly suitable for our project.
+
+
+
+
+
+
+\section{the Algebraic Group Model in cryptography}
+
+
+In recent years, researchers have explored intermediate computational models that enable more tractable security 
+arguments than the standard model while maintaining more structure than fully idealized models. The Algebraic Group Model (AGM), introduced by Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018}, has became a influential framework for analyzing discrete-logarithm-based cryptography. In AGM, it is assumed that adversaries are algebraic, meaning that whenever they output a new group element, they must simultaneously provide a representation of how this element is formed by combining previous elements. 
+
+\paragraph{Key Encapsulation and Encryption.}
+Fuchsbauer, Kiltz, and Loss~\cite{fuchsbauer2018} establish several key results in their original AGM paper. In particular, they prove (Theorem 5.2) that the IND-CCA1 security of ElGamal-based Key Encapsulation Mechanism is equivalent to the q-Decisional Diffie-Hellman (q-DDH) assumption under the AGM. This bilateral reduction demonstrates that breaking ElGamal KEM's security is 
+computationally equivalent to distinguishing q-DDH distributions, \emph{To our knowledge, our work provides first machine-checked formalization using EasyCrypt of this bilateral reduction (Theorem 5.2 from~\cite{fuchsbauer2018}), translating the paper proof into over 2000 lines of verified EasyCrypt code and making explicit all reasoning steps.}
+
+
+\paragraph{Digital Signatures.}
+Fuchsbauer, Plouviez, and Seurin~\cite{fuchsbauer2020blind} provide a complete security analysis of Schnorr signatures within AGM, establishing security under the discrete logarithm assumption rather than requiring stronger assumptions or the ROM. This demonstrates the AGM's utility for analyzing signature schemes compared to standard model approaches.
+
+
+\paragraph{Advanced Protocols.}
+Beyond encryption schemes, AGM has also been applied to more complex cryptographic protocols. In 2023 work "From Polynomial IOP and Commitments to Non-malleable zkSNARKs," Faonio et al.~\cite{faonio2023} used AGM (combined with the random oracle model) to prove the simulation-extractability of the KZG polynomial commitment scheme, thereby constructing non-malleable zkSNARKs. This shows that AGM is also valuable in security analysis of complex protocols compared with standard model. 
+
+
+\paragraph{Relationship to Our Work.}
+To my knowledge, majority of AGM security arguments exists only as paper proof, which inspired us to provide a full machine-checked formalization of a specific AGM reduction using EasyCrypt. Inspired by the paper proof in~\cite{fuchsbauer2018} and all the AGM-related work mentioned above, we explored the mechanization of AGM reasoning and make them as the foundation of our work. By comparison with our work, it also illustrates that making implicit algebraic logic of paper proofs requires extensive explicit.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{ElGamal Encryption and Key Encapsulation Mechanism}
+ElGamal encryption~\cite{elgamal1985}, is a foundational public-key cryptosystem based on the Diffie-Hellman problem. Its security 
+relies on the computational hardness of the Decisional Diffie-Hellman (DDH) assumption in cyclic groups. Understanding ElGamal's security properties and their formal verification is significantly related to our work. The detailed explanation of ElGamal lies in section \ref{sec:elgamal}.
+
+\subsection{Variants and Extensions of ElGamal-Based KEMs}
+
+Building on the basic ElGamal, the related work below has developed various enhanced variants handling different security requirements:
+
+\paragraph{Leakage-Resilient Constructions.}
+Kiltz and Pietrzak~\cite{kiltz2010} established one of the first leakage-resilient ElGamal constructions, proving that a CCA1-secure KEM integrated with a one-time symmetric cipher can achieve full IND-CCA security even under bounded key leakage. This work indicates that ElGamal-style constructions can provide security guarantees even when side-channel attacks impose certain information about secret keys. Based on this direction, Galindo et al.~\cite{galindo2016} further introducing BEG-KEM, a leakage-resilient variant of ElGamal KEM that strengthens resistance to side-channel attacks through masking and blinding techniques. It not only achieves provable leakage security but also preserve practical efficiency on constrained embedded device.
+
+\paragraph{Tight Security in Multi-User Settings.}
+Hashimoto et al.~\cite{hashimoto2022} strengthen the theoretical foundations by providing tight reduction proofs for the Twin-DH hashed ElGamal KEM in multi-user environments. Their work demonstrates that ElGamal-based KEMs can achieve security with tight bounds even when many users share the same system parameters.
+
+Hashimoto et al.~\cite{hashimoto2022} strengthened the theoretical foundation of ElGamal-based KEMs by giving tight reduction proofs for the Twin-DH hashed ElGamal KEM in multi-user settings.
+Their work demonstrates that ElGamal-based KEMs can achieve security with tight bounds even when many users share the same system parameters.
+
+
+
+\paragraph{Bandwidth-Efficient Variants.}
+Lee et al.~\cite{lee2023} proposed a decomposable KEM framework based on ElGamal.
+Their design supports continuous key agreement with lower communication costs while preserving security under the DDH assumption.
+
+
+
+\paragraph{Relationship to Our Work.}
+All in all, these works handle the practical enhancements like, leakage resilience, multi-user tightness, bandwidth efficiency, these directions are orthogonal to our formal verification of AGM-based security, which inspired us to put eyes on the ElGamal \KEM as our research target. Rather than developing the 
+scheme itself, we try to solve the foundational question of whether AGM-based 
+proofs can be mechanically verified, illustrating the feasibility for a basic 
+but theoretically significant construction.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
